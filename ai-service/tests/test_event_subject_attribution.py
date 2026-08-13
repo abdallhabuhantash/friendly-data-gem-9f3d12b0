@@ -15,6 +15,7 @@ import pytest
 from app.domain.event_attribution import (
     LINK_METHOD_FRAME_OWNERSHIP,
     attribute_event_subjects,
+    evidence_person_tracking_ids,
 )
 from app.domain.geometry import BBox
 from app.domain.models import AiEvent, AssociationStatus, EvidenceItem
@@ -28,6 +29,8 @@ from app.events.event_publisher import EventPublisher
 from app.infrastructure.offline_queue import OfflineQueue
 
 NOW = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
+#: Far enough ahead that any recorded retry backoff window has elapsed.
+FUTURE = NOW.timestamp() + 86_400.0
 SESSION = "11111111-1111-1111-1111-111111111111"
 
 
@@ -225,7 +228,7 @@ def test_link_waits_until_the_subject_row_exists(queue: OfflineQueue) -> None:
 
     # The subject is persisted a moment later: the same event gets its link.
     repo.subject_rows[(SESSION, 1)] = "subject-row-1"
-    assert publisher.retry_pending_subject_links(now_override=True) == 1
+    assert publisher.retry_pending_subject_links(now=FUTURE) == 1
     assert repo.links[0]["event_id"] == "event-1"
     assert queue.subject_link_depth() == 0
 
@@ -238,13 +241,13 @@ def test_link_is_not_written_while_the_event_is_still_queued(queue: OfflineQueue
     links = attribute_event_subjects(frame_result(snapshot(1, "t-7")), primary_tracking_id="t-7")
 
     assert publisher.publish(make_event(exam_session_id=SESSION, subject_links=links)) is False
-    assert publisher.retry_pending_subject_links(now_override=True) == 0
+    assert publisher.retry_pending_subject_links(now=FUTURE) == 0
     assert queue.subject_link_depth() == 1
 
     # Once the event itself lands, the queued link becomes writable.
     repo.insert_events_fail = False
     assert publisher.retry_pending() == 1
-    assert publisher.retry_pending_subject_links(now_override=True) == 1
+    assert publisher.retry_pending_subject_links(now=FUTURE) == 1
     assert repo.links[0]["session_subject_id"] == "subject-row-1"
 
 
@@ -278,13 +281,11 @@ def test_two_participants_produce_two_stable_links(queue: OfflineQueue) -> None:
             tracking_id="t-2",
         )
     ]
-    from app.runtime.orchestrator import _evidence_person_tracking_ids  # noqa: PLC0415
-
     event.exam_session_id = SESSION
     event.subject_links = attribute_event_subjects(
         frame_result(snapshot(1, "t-1"), snapshot(2, "t-2")),
         primary_tracking_id=event.person_tracking_id,
-        additional_tracking_ids=_evidence_person_tracking_ids(event),
+        additional_tracking_ids=evidence_person_tracking_ids(event),
     )
     publisher.publish(event)
     assert sorted(row["participant_index"] for row in repo.links) == [1, 2]

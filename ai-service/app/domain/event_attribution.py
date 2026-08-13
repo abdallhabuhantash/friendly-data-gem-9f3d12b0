@@ -61,6 +61,24 @@ class EventSubjectLink:
             raise ValueError("link_confidence must be within 0..1 when present")
 
 
+def evidence_person_tracking_ids(event) -> tuple[str, ...]:  # noqa: ANN001 - AiEvent
+    """Further person tracks an event's own evidence names, in stable order.
+
+    Only identities the evidence itself carries are returned; nothing is
+    inferred from the frame at large.
+    """
+    collected: list[str] = []
+    for item in getattr(event, "evidence", ()) or ():
+        candidates = [getattr(item, "associated_person_tracking_id", None)]
+        if getattr(item, "role", "") == "person":
+            candidates.append(getattr(item, "tracking_id", None))
+        for candidate in candidates:
+            key = (candidate or "").strip()
+            if key and key not in collected:
+                collected.append(key)
+    return tuple(collected)
+
+
 def _owned_subjects(result: SubjectFrameResult) -> dict[str, tuple[int, str, Optional[float]]]:
     """raw tracking id -> (subject_number, label, association confidence).
 

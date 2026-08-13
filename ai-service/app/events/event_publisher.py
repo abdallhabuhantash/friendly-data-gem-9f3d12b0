@@ -118,7 +118,9 @@ class EventPublisher:
                 )
         return sent
 
-    def retry_pending_subject_links(self, limit: int = 10) -> int:
+    def retry_pending_subject_links(
+        self, limit: int = 10, now: Optional[float] = None
+    ) -> int:
         """Drains queued event -> anonymous subject links.
 
         A link is attempted only when its event row already reached Supabase.
@@ -128,7 +130,7 @@ class EventPublisher:
         if limit <= 0:
             return 0
         linked = 0
-        for pending in self._queue.due_subject_links(limit=limit):
+        for pending in self._queue.due_subject_links(limit=limit, now=now):
             if self._queue.has_pending_event(pending.event_id):
                 continue  # the event itself is still queued; try again later
             payload = pending.payload

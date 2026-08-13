@@ -27,7 +27,10 @@ from ..domain.models import (
     RuleConfig,
     SystemConfig,
 )
-from ..domain.event_attribution import attribute_event_subjects
+from ..domain.event_attribution import (
+    attribute_event_subjects,
+    evidence_person_tracking_ids,
+)
 from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import MotionState, RestoredSubject
@@ -55,19 +58,6 @@ from .stream_hub import StreamHub
 
 logger = logging.getLogger(__name__)
 
-
-def _evidence_person_tracking_ids(event) -> tuple[str, ...]:  # noqa: ANN001 - AiEvent
-    """Further person tracks this event's own evidence names, in order."""
-    collected: list[str] = []
-    for item in getattr(event, "evidence", ()) or ():
-        for candidate in (
-            getattr(item, "associated_person_tracking_id", None),
-            getattr(item, "tracking_id", None) if getattr(item, "role", "") == "person" else None,
-        ):
-            key = (candidate or "").strip()
-            if key and key not in collected:
-                collected.append(key)
-    return tuple(collected)
 
 
 def _restored_subjects(rows) -> list[tuple[Optional[str], RestoredSubject]]:  # noqa: ANN001
@@ -678,7 +668,7 @@ class Orchestrator:
                 draft.event.subject_links = attribute_event_subjects(
                     subject_result,
                     primary_tracking_id=draft.event.person_tracking_id,
-                    additional_tracking_ids=_evidence_person_tracking_ids(draft.event),
+                    additional_tracking_ids=evidence_person_tracking_ids(draft.event),
                 )
             # `annotated` is derived from exactly the frame that produced
             # this draft, so an instant single-frame event can never be
