@@ -15,9 +15,8 @@ import { useEventAttribution } from "@/hooks/use-subject-attribution";
 import { displaySeverity } from "@/lib/event-presentation";
 import { formatTimestamp } from "@/lib/format";
 import {
-  groupSubjectReview,
   isPendingEvent,
-  unattributedExamEvents,
+  subjectReviewView,
   type SubjectReviewGroup,
 } from "@/lib/subject-review";
 import type { DetectionEvent, EventSubjectAttribution } from "@/types";
@@ -162,10 +161,12 @@ export function SubjectReviewPanel({
 
   const attributionFor = (eventId: string) => attribution.map.get(eventId) ?? [];
 
-  const groups = useMemo(
-    () => groupSubjectReview(events.data ?? [], attribution.map),
-    [events.data, attribution.map],
+  // Loading / failed attribution is NEVER classified as unattributed.
+  const view = useMemo(
+    () => subjectReviewView(events.data ?? [], attribution),
+    [events.data, attribution],
   );
+  const groups = view.kind === "ready" ? view.groups : [];
   const visibleGroups = useMemo(
     () =>
       groups.filter((group) => {
@@ -176,10 +177,7 @@ export function SubjectReviewPanel({
       }),
     [groups, pendingOnly, identity],
   );
-  const unattributed = useMemo(
-    () => unattributedExamEvents(events.data ?? [], attribution.map),
-    [events.data, attribution.map],
-  );
+  const unattributed = view.kind === "ready" ? view.unattributed : [];
   const unattributedPending = unattributed.filter(isPendingEvent).length;
 
   return (
@@ -232,6 +230,24 @@ export function SubjectReviewPanel({
         </p>
       ) : events.isPending ? (
         <p className="py-8 text-center text-xs text-muted-foreground">Loading exam events…</p>
+      ) : view.kind === "loading" ? (
+        <p className="py-8 text-center text-xs text-muted-foreground">
+          Loading subject attribution…
+        </p>
+      ) : view.kind === "error" ? (
+        <div className="flex flex-col items-center gap-2 py-8">
+          <p className="text-center text-xs text-muted-foreground">
+            Subject attribution could not be read, so no event can be classified yet.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => attribution.refetch()}
+          >
+            Retry
+          </Button>
+        </div>
       ) : (
         <div className="space-y-2">
           <div className="rounded-[4px] border border-border/70 bg-background/40">
