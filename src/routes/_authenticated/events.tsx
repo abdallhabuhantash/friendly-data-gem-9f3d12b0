@@ -11,6 +11,8 @@ import {
 import { Panel } from "@/components/common/Panel";
 import { EventDetailsDialog } from "@/components/events/EventDetailsDialog";
 import { ReviewConfirmDialog, type ReviewDecision } from "@/components/events/ReviewConfirmDialog";
+import { SubjectAttributionSummary } from "@/components/events/SubjectAttributionSummary";
+import { SubjectIdentityDialog } from "@/components/events/SubjectIdentityDialog";
 import { StatTile } from "@/components/common/StatTile";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TopBar } from "@/components/layout/TopBar";
@@ -25,9 +27,15 @@ import {
 } from "@/components/ui/select";
 import { useEvents, useEventsSummary, useReviewEvent } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import { useEventAttribution } from "@/hooks/use-subject-attribution";
 import { displayPersonId, displaySeverity, formatSeconds } from "@/lib/event-presentation";
 import { formatTimestamp } from "@/lib/format";
-import type { DetectionEvent, EventSeverity, EventStatus } from "@/types";
+import type {
+  DetectionEvent,
+  EventSeverity,
+  EventStatus,
+  EventSubjectAttribution,
+} from "@/types";
 
 export const Route = createFileRoute("/_authenticated/events")({
   head: () => ({
@@ -52,6 +60,9 @@ function EventsPage() {
   const [severity, setSeverity] = useState<EventSeverity | "all">("all");
   const [status, setStatus] = useState<EventStatus | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Identity resolution is always an explicit, human-initiated action.
+  const [identityTarget, setIdentityTarget] = useState<EventSubjectAttribution | null>(null);
+  const attribution = useEventAttribution(events.data);
   // Confirm / Reject always pass through an explicit confirmation step.
   const [pendingDecision, setPendingDecision] = useState<{
     id: string;
@@ -144,6 +155,7 @@ function EventsPage() {
                 <th className="label-tech px-3 py-2">Event</th>
                 <th className="label-tech px-3 py-2">Camera</th>
                 <th className="label-tech px-3 py-2">Track</th>
+                <th className="label-tech px-3 py-2">Subject</th>
                 <th className="label-tech px-3 py-2">Trigger conf.</th>
                 <th className="label-tech px-3 py-2">Association</th>
                 <th className="label-tech px-3 py-2">Duration</th>
@@ -169,6 +181,13 @@ function EventsPage() {
                   <td className="px-3 py-2 text-muted-foreground">{event.cameraName}</td>
                   <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
                     {displayPersonId(event) ?? "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    <SubjectAttributionSummary
+                      attributions={attribution.map.get(event.id) ?? []}
+                      examSessionId={event.examSessionId}
+                      compact
+                    />
                   </td>
                   <td className="px-3 py-2">
                     <ConfidenceMeter value={event.triggerConfidence ?? event.confidence} />
@@ -226,9 +245,15 @@ function EventsPage() {
       </PageContainer>
       <EventDetailsDialog
         event={selected}
+        attributions={selected ? (attribution.map.get(selected.id) ?? []) : []}
         pending={review.isPending}
         onOpenChange={(open) => !open && setSelectedId(null)}
         onReview={(input) => review.mutate(input)}
+        onResolveIdentity={setIdentityTarget}
+      />
+      <SubjectIdentityDialog
+        attribution={identityTarget}
+        onOpenChange={(open) => !open && setIdentityTarget(null)}
       />
       <ReviewConfirmDialog
         decision={pendingDecision?.decision ?? null}
