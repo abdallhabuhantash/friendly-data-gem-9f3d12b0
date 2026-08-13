@@ -67,7 +67,15 @@ function EventsPage() {
   const [externalEvent, setExternalEvent] = useState<DetectionEvent | null>(null);
   // Identity resolution is always an explicit, human-initiated action.
   const [identityTarget, setIdentityTarget] = useState<EventSubjectAttribution | null>(null);
-  const attribution = useEventAttribution(events.data);
+  // One batched attribution read covering the visible log plus any event opened
+  // from Subject Review that is outside the generic latest-events list.
+  const attributionEvents = useMemo(() => {
+    const list = events.data ?? [];
+    if (externalEvent && !list.some((event) => event.id === externalEvent.id))
+      return [...list, externalEvent];
+    return list;
+  }, [events.data, externalEvent]);
+  const attribution = useEventAttribution(attributionEvents);
   // Confirm / Reject always pass through an explicit confirmation step.
   const [pendingDecision, setPendingDecision] = useState<{
     id: string;
@@ -112,6 +120,34 @@ function EventsPage() {
           <StatTile label="Confirmed" value={summary.data?.confirmed ?? 0} tone="success" />
           <StatTile label="Rejected" value={summary.data?.rejected ?? 0} />
         </div>
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant={view === "log" ? "default" : "outline"}
+            className="h-7 px-3 text-[11px]"
+            onClick={() => setView("log")}
+          >
+            Event Log
+          </Button>
+          <Button
+            size="sm"
+            variant={view === "subjects" ? "default" : "outline"}
+            className="h-7 px-3 text-[11px]"
+            onClick={() => setView("subjects")}
+          >
+            Subject Review
+          </Button>
+        </div>
+        {view === "subjects" && (
+          <SubjectReviewPanel
+            onOpenEvent={(event) => {
+              setExternalEvent(event);
+              setSelectedId(event.id);
+            }}
+            onResolveIdentity={setIdentityTarget}
+          />
+        )}
+        {view === "log" && (
         <Panel
           title="Event log"
           subtitle="Terminology is advisory: suspicious / possible activity, never confirmed cheating."
@@ -247,12 +283,18 @@ function EventsPage() {
             <p className="py-10 text-center text-xs text-muted-foreground">No events match.</p>
           )}
         </Panel>
+        )}
       </PageContainer>
       <EventDetailsDialog
         event={selected}
         attributions={selected ? (attribution.map.get(selected.id) ?? []) : []}
         pending={review.isPending}
-        onOpenChange={(open) => !open && setSelectedId(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setExternalEvent(null);
+          }
+        }}
         onReview={(input) => review.mutate(input)}
         onResolveIdentity={setIdentityTarget}
       />
