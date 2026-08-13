@@ -323,6 +323,9 @@ class SubjectFrameResult:
     unresolved: tuple[UnresolvedCandidate, ...] = ()
     #: raw tracking id -> anonymous label, for the annotated stream only.
     labels: tuple[tuple[str, str], ...] = ()
+    #: Continuity health of this camera registry at this frame.
+    continuity: ContinuityMode = ContinuityMode.HEALTHY
+
 
     def label_for(self, raw_tracking_id: str) -> str:
         """Human-facing label for a raw track: an S-number or ``UNRESOLVED``."""
