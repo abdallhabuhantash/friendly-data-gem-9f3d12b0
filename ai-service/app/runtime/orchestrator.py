@@ -27,7 +27,10 @@ from ..domain.models import (
     RuleConfig,
     SystemConfig,
 )
+from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
+from ..domain.session_subjects import MotionState, RestoredSubject
+
 
 
 from ..events.subject_state_publisher import SubjectStatePublisher
