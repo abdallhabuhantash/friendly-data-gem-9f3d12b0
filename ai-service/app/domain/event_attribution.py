@@ -62,11 +62,16 @@ class EventSubjectLink:
 
 
 def evidence_person_tracking_ids(event) -> tuple[str, ...]:  # noqa: ANN001 - AiEvent
-    """Further person tracks an event's own evidence names, in stable order.
+    """Person tracks an event's own evidence names, in stable order.
 
-    Only identities the evidence itself carries are returned; nothing is
-    inferred from the frame at large.
+    NOT an attribution source. Generic evidence lists every person visible in
+    the triggering frame, and "visible in the frame" is never "event
+    participant". The mobile-phone engine therefore attributes solely from
+    ``event.person_tracking_id``. A future multi-person engine must publish the
+    participant tracks it itself proved. This helper exists only for diagnostics
+    and must never be passed to ``attribute_event_subjects``.
     """
+
     collected: list[str] = []
     for item in getattr(event, "evidence", ()) or ():
         candidates = [getattr(item, "associated_person_tracking_id", None)]
