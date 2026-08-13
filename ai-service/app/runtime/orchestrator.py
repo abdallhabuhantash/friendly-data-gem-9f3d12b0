@@ -660,16 +660,23 @@ class Orchestrator:
         )
 
         for draft in self.registry.dispatch(applicable_rules, context):
-            # Attribution uses ONLY this frame's subject result: an event is
-            # attached to S00n solely when the registry confirmed ownership of
-            # the very track the event associated. Otherwise it stays anonymous.
+            # Attribution uses ONLY this frame's subject result AND only the
+            # participant tracks the engine itself proved. For the phone engine
+            # that is exactly `person_tracking_id`, which is set only on an
+            # ASSOCIATED association. People merely visible in the same frame
+            # are never event participants, so UNCERTAIN/UNASSOCIATED events
+            # stay anonymous. A future multi-person engine must publish its own
+            # proven participant tracks via `draft.participant_tracking_ids`.
             if subject_result is not None:
                 draft.event.exam_session_id = subject_result.exam_session_id
                 draft.event.subject_links = attribute_event_subjects(
                     subject_result,
                     primary_tracking_id=draft.event.person_tracking_id,
-                    additional_tracking_ids=evidence_person_tracking_ids(draft.event),
+                    additional_tracking_ids=tuple(
+                        getattr(draft, "participant_tracking_ids", ()) or ()
+                    ),
                 )
+
             # `annotated` is derived from exactly the frame that produced
             # this draft, so an instant single-frame event can never be
             # snapshotted with a later frame where the phone has vanished.
