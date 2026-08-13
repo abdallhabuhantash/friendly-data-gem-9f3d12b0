@@ -208,6 +208,67 @@ export type Database = {
         }
         Relationships: []
       }
+      event_subjects: {
+        Row: {
+          created_at: string
+          event_id: string
+          exam_session_id: string
+          id: string
+          link_confidence: number | null
+          link_method: string
+          linked_at: string
+          participant_index: number
+          participant_role: string
+          session_subject_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          exam_session_id: string
+          id?: string
+          link_confidence?: number | null
+          link_method?: string
+          linked_at?: string
+          participant_index?: number
+          participant_role?: string
+          session_subject_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          exam_session_id?: string
+          id?: string
+          link_confidence?: number | null
+          link_method?: string
+          linked_at?: string
+          participant_index?: number
+          participant_role?: string
+          session_subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_subjects_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_subjects_exam_session_id_fkey"
+            columns: ["exam_session_id"]
+            isOneToOne: false
+            referencedRelation: "exam_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_subjects_session_subject_id_fkey"
+            columns: ["session_subject_id"]
+            isOneToOne: false
+            referencedRelation: "session_subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           association_confidence: number | null
@@ -221,6 +282,7 @@ export type Database = {
           detection_frame_count: number | null
           duration_seconds: number
           evidence: Json
+          exam_session_id: string | null
           id: string
           note: string | null
           person_tracking_id: string | null
@@ -247,6 +309,7 @@ export type Database = {
           detection_frame_count?: number | null
           duration_seconds?: number
           evidence?: Json
+          exam_session_id?: string | null
           id?: string
           note?: string | null
           person_tracking_id?: string | null
@@ -273,6 +336,7 @@ export type Database = {
           detection_frame_count?: number | null
           duration_seconds?: number
           evidence?: Json
+          exam_session_id?: string | null
           id?: string
           note?: string | null
           person_tracking_id?: string | null
@@ -293,6 +357,13 @@ export type Database = {
             columns: ["camera_id"]
             isOneToOne: false
             referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_exam_session_id_fkey"
+            columns: ["exam_session_id"]
+            isOneToOne: false
+            referencedRelation: "exam_sessions"
             referencedColumns: ["id"]
           },
           {
@@ -679,6 +750,67 @@ export type Database = {
           },
         ]
       }
+      subject_identity_resolutions: {
+        Row: {
+          correction_reason: string | null
+          created_at: string
+          exam_roster_student_id: string
+          exam_session_id: string
+          id: string
+          resolved_at: string
+          resolved_by: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          session_subject_id: string
+        }
+        Insert: {
+          correction_reason?: string | null
+          created_at?: string
+          exam_roster_student_id: string
+          exam_session_id: string
+          id?: string
+          resolved_at?: string
+          resolved_by?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          session_subject_id: string
+        }
+        Update: {
+          correction_reason?: string | null
+          created_at?: string
+          exam_roster_student_id?: string
+          exam_session_id?: string
+          id?: string
+          resolved_at?: string
+          resolved_by?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          session_subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subject_identity_resolutions_exam_roster_student_id_fkey"
+            columns: ["exam_roster_student_id"]
+            isOneToOne: false
+            referencedRelation: "exam_roster_students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subject_identity_resolutions_exam_session_id_fkey"
+            columns: ["exam_session_id"]
+            isOneToOne: false
+            referencedRelation: "exam_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subject_identity_resolutions_session_subject_id_fkey"
+            columns: ["session_subject_id"]
+            isOneToOne: false
+            referencedRelation: "session_subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_settings: {
         Row: {
           ai_service_url: string
@@ -741,7 +873,58 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      event_subject_identity_view: {
+        Row: {
+          event_id: string | null
+          event_subject_id: string | null
+          exam_roster_student_id: string | null
+          exam_session_id: string | null
+          link_confidence: number | null
+          link_method: string | null
+          linked_at: string | null
+          participant_index: number | null
+          participant_role: string | null
+          resolution_id: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          resolved_by_name: string | null
+          session_subject_id: string | null
+          student_full_name: string | null
+          student_university_id: string | null
+          subject_label: string | null
+          subject_number: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_subjects_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_subjects_exam_session_id_fkey"
+            columns: ["exam_session_id"]
+            isOneToOne: false
+            referencedRelation: "exam_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_subjects_session_subject_id_fkey"
+            columns: ["session_subject_id"]
+            isOneToOne: false
+            referencedRelation: "session_subjects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subject_identity_resolutions_exam_roster_student_id_fkey"
+            columns: ["exam_roster_student_id"]
+            isOneToOne: false
+            referencedRelation: "exam_roster_students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       allocate_session_subject_number: {
@@ -757,8 +940,20 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      resolve_subject_identity: {
+        Args: {
+          _correction_reason?: string
+          _exam_roster_student_id: string
+          _session_subject_id: string
+        }
+        Returns: string
+      }
       review_event: {
         Args: { _event_id: string; _note?: string; _status: string }
+        Returns: undefined
+      }
+      revoke_subject_identity: {
+        Args: { _correction_reason: string; _resolution_id: string }
         Returns: undefined
       }
     }
