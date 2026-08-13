@@ -8,7 +8,7 @@ import pytest
 
 from app.domain.geometry import BBox
 from app.domain.observations import FrameObservations, PersonObservation
-from app.domain.session_subjects import SubjectRegistryConfig
+from app.domain.session_subjects import UNRESOLVED_TRACK_LABEL, SubjectRegistryConfig
 from app.events.subject_state_publisher import SubjectStatePublisher
 from app.runtime.subject_runtime import ArmedSession, SubjectRuntime
 
