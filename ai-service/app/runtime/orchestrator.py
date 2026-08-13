@@ -613,6 +613,7 @@ class Orchestrator:
         # is completely independent of rule configuration: it never creates
         # events and never influences Task 1 thresholds.
         subject_labels: dict[str, str] = {}
+        subject_result = None
         if self.subjects is not None:
             try:
                 subject_result = self.subjects.observe(observations)
@@ -654,6 +655,16 @@ class Orchestrator:
         )
 
         for draft in self.registry.dispatch(applicable_rules, context):
+            # Attribution uses ONLY this frame's subject result: an event is
+            # attached to S00n solely when the registry confirmed ownership of
+            # the very track the event associated. Otherwise it stays anonymous.
+            if subject_result is not None:
+                draft.event.exam_session_id = subject_result.exam_session_id
+                draft.event.subject_links = attribute_event_subjects(
+                    subject_result,
+                    primary_tracking_id=draft.event.person_tracking_id,
+                    additional_tracking_ids=_evidence_person_tracking_ids(draft.event),
+                )
             # `annotated` is derived from exactly the frame that produced
             # this draft, so an instant single-frame event can never be
             # snapshotted with a later frame where the phone has vanished.
