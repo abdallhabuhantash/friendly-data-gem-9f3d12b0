@@ -801,37 +801,34 @@ class Orchestrator:
         if not running:
             raise ValueError("no assigned camera is currently being processed")
         started_at = datetime.now(timezone.utc)
-        # Adopt any subject rows that already exist so a restart never
-        # duplicates or renumbers anonymous subjects.
+        # One canonical hydrated arming path: restored identities and reserved
+        # numbers are handed to arm() atomically, so a frame can never reach an
+        # empty registry for a session that already owns S-numbers.
         try:
-            self.subject_publisher.bind_existing(
-                exam_session_id, self.repository.existing_subject_rows(exam_session_id)
-            )
-            history = self.repository.open_subject_history(exam_session_id)
+            restored, highest = self._hydrate_session(exam_session_id)
         except Exception as exc:
-            history = []
+            if status == "active":
+                # Fail closed: arming empty could mint duplicate identities.
+                logger.warning(
+                    "Anonymous subject history unreadable for an active exam session: %s",
+                    type(exc).__name__,
+                )
+                raise RuntimeError(
+                    "existing anonymous subject history could not be read; "
+                    "refusing to arm this active exam session with an empty registry"
+                ) from exc
+            restored, highest = (), 0
             logger.warning("Existing subject rows could not be read: %s", type(exc).__name__)
         self.subjects.arm(
             ArmedSession(
                 exam_session_id=exam_session_id,
                 camera_ids=running,
                 started_at=started_at,
-            )
+            ),
+            restored=restored,
+            highest_number=highest,
         )
-        # Numbers used by an earlier run of this session stay reserved forever.
-        highest = max(
-            (int(row.get("subject_number") or 0) for row in history),
-            default=0,
-        )
-        if highest:
-            self.subjects.reserve_numbers(exam_session_id, highest)
-        # Identity survives the restart: existing subjects are re-adopted with
-        # whatever motion evidence was persisted, so a returning person is
-        # recovered onto their original label or stays UNRESOLVED — never
-        # renumbered.
-        restored = tuple(_restored_subjects(history))
-        if restored:
-            self.subjects.restore_session(exam_session_id, restored)
+
 
         if status != "active":
             self.repository.set_exam_session_runtime(
