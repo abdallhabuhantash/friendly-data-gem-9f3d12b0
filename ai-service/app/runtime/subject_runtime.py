@@ -20,11 +20,13 @@ from typing import Iterable, Optional
 
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import (
+    RestoredSubject,
     SubjectEventKind,
     SubjectFrameResult,
     SubjectRegistryConfig,
     SubjectSnapshot,
 )
+
 from ..ai.subject_registry import ExamSubjectRegistry
 
 logger = logging.getLogger(__name__)
@@ -116,6 +118,47 @@ class SubjectRuntime:
             len(session.camera_ids),
         )
 
+    def restore_session(
+        self,
+        exam_session_id: str,
+        restored: Iterable[tuple[Optional[str], RestoredSubject]],
+    ) -> None:
+        """Re-adopts subjects an earlier run of this session already created.
+
+        Without this, a service restart would meet returning people as brand-new
+        raw tracks and hand them a SECOND permanent number. Restored subjects
+        instead hold their number and put their camera under a continuity guard:
+        a returning track is either recovered onto its original label or stays
+        UNRESOLVED — never renumbered.
+        """
+        grouped: dict[str, list[RestoredSubject]] = {}
+        with self._lock:
+            state = self._sessions.get(exam_session_id)
+            if state is None:
+                return
+            cameras = tuple(state.session.camera_ids)
+            for camera_id, subject in restored:
+                target = camera_id if camera_id in cameras else (cameras[0] if cameras else None)
+                if target is None:
+                    continue
+                grouped.setdefault(target, []).append(subject)
+            events_by_camera = {
+                camera_id: (
+                    state.registry_for(camera_id),
+                    state.registry_for(camera_id).restore(items),
+                )
+                for camera_id, items in grouped.items()
+            }
+        for camera_id, (registry, events) in events_by_camera.items():
+            if events:
+                self._publisher.record_events(
+                    exam_session_id=exam_session_id,
+                    camera_id=camera_id,
+                    subjects=registry.snapshots(),
+                    events=events,
+                )
+
+
     def disarm(self, exam_session_id: str, *, ended_at: Optional[datetime] = None) -> None:
         """Closes every subject of the session truthfully, then forgets it."""
         moment = ended_at or datetime.now(timezone.utc)
@@ -194,10 +237,11 @@ class SubjectRuntime:
     def reset_camera(self, camera_id: str) -> None:
         """A new stream incarnation must not inherit raw-track bindings.
 
-        Existing subjects keep their numbers reserved: the registry is rebuilt
-        with the same subjects marked LOST/UNRESOLVED, so a person re-observed
-        after a stream restart can never be given a second label, and the old
-        raw ids of the previous incarnation are not trusted.
+        Existing subjects keep their numbers reserved and their last trustworthy
+        motion state is carried over, so a person re-observed after a stream
+        restart is either safely recovered onto the SAME label or stays
+        UNRESOLVED. The camera is continuity-guarded until then, which is what
+        prevents a returning subject from ever earning a second number.
         """
         moment = datetime.now(timezone.utc)
         with self._lock:
@@ -209,7 +253,12 @@ class SubjectRuntime:
             carried = previous.snapshots()
             registry = state.registry_for(camera_id)
             restored = registry.restore(
-                (item.subject_number, item.first_seen_at, item.last_seen_at)
+                RestoredSubject(
+                    subject_number=item.subject_number,
+                    first_seen_at=item.first_seen_at,
+                    last_seen_at=item.last_seen_at,
+                    motion=item.motion,
+                )
                 for item in carried
                 if item.is_open
             )
@@ -221,6 +270,7 @@ class SubjectRuntime:
             if event.kind is not SubjectEventKind.ENDED
         )
         events = release_events + restored
+
         if events:
             self._publisher.record_events(
                 exam_session_id=state.session.exam_session_id,

@@ -83,10 +83,29 @@ class TrackAssociation(str, Enum):
     CONFLICT = "conflict"
 
 
+class ContinuityMode(str, Enum):
+    """How much identity continuity evidence a camera registry still has.
+
+    A stream reset or a service restart destroys raw-tracker continuity but must
+    never destroy identity: while continuity is not ``HEALTHY`` no NEW permanent
+    subject number may be allocated for a raw track that could be a returning
+    pre-interruption subject. ``UNRESOLVED`` is preferred over a duplicate.
+    """
+
+    #: Normal operation: qualification and genuine late-arrival numbering work.
+    HEALTHY = "healthy"
+    #: An interruption happened and usable motion evidence was carried over, so
+    #: safe short-gap recovery of the affected subjects is still possible.
+    RECOVERING = "recovering"
+    #: No usable evidence is left to tell returning subjects from new people.
+    COMPROMISED = "compromised"
+
+
 class AssociationMethod(str, Enum):
     INITIAL = "initial"
     SHORT_GAP_REASSOCIATION = "short_gap_reassociation"
     RESTORED_AFTER_RESTART = "restored_after_restart"
+
 
 
 class SubjectEventKind(str, Enum):
@@ -304,6 +323,9 @@ class SubjectFrameResult:
     unresolved: tuple[UnresolvedCandidate, ...] = ()
     #: raw tracking id -> anonymous label, for the annotated stream only.
     labels: tuple[tuple[str, str], ...] = ()
+    #: Continuity health of this camera registry at this frame.
+    continuity: ContinuityMode = ContinuityMode.HEALTHY
+
 
     def label_for(self, raw_tracking_id: str) -> str:
         """Human-facing label for a raw track: an S-number or ``UNRESOLVED``."""
@@ -455,3 +477,27 @@ def recovery_score(
     distance = normalized_distance(observed.center, predicted)
     proximity = 0.0 if distance >= 1.5 else max(0.0, 1.0 - distance / 1.5)
     return round(min(1.0, max(0.0, 0.6 * overlap + 0.4 * proximity)), 6)
+
+
+@dataclass(frozen=True, slots=True)
+class RestoredSubject:
+    """One already-existing subject reloaded after an interruption.
+
+    Carries only anonymous state that was already persisted or held in memory:
+    the immutable number, its timestamps and — when still trustworthy — the last
+    motion state. ``motion=None`` means no spatial evidence survived, which makes
+    safe recovery impossible and the affected camera continuity-compromised.
+    """
+
+    subject_number: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    motion: Optional[MotionState] = None
+
+    @classmethod
+    def coerce(cls, item) -> "RestoredSubject":  # noqa: ANN001
+        """Accepts a ``RestoredSubject`` or a plain ``(number, first, last)``."""
+        if isinstance(item, RestoredSubject):
+            return item
+        number, first_seen_at, last_seen_at = item
+        return cls(int(number), first_seen_at, last_seen_at)

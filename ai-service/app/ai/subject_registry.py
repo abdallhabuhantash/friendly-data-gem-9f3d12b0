@@ -36,10 +36,12 @@ from ..domain.observations import PersonObservation
 from ..domain.session_subjects import (
     UNRESOLVED_TRACK_LABEL,
     AssociationMethod,
+    ContinuityMode,
     MotionState,
     PendingTrack,
     RecoveryCandidate,
     RecoveryDecision,
+    RestoredSubject,
     SubjectEvent,
     SubjectEventKind,
     SubjectFrameResult,
@@ -57,6 +59,10 @@ from ..domain.session_subjects import (
 
 #: Lifecycles from which a subject may still reclaim a raw track.
 _RECOVERABLE = (SubjectLifecycle.TEMPORARILY_LOST, SubjectLifecycle.LOST)
+
+#: Why a raw track is held UNRESOLVED instead of earning a new number.
+CONTINUITY_HOLD_REASON = "continuity_not_established_after_interruption"
+
 
 
 class ExamSubjectRegistry:
@@ -80,6 +86,12 @@ class ExamSubjectRegistry:
         self._pending: dict[str, PendingTrack] = {}
         self._next_number = 1
         self._last_frame_at: Optional[datetime] = None
+        # Continuity safety: subject numbers of subjects that survived an
+        # interruption and have not been safely re-bound yet. While this set is
+        # non-empty, no raw track may earn a NEW permanent number here.
+        self._awaiting_continuity: set[int] = set()
+        self._continuity = ContinuityMode.HEALTHY
+
 
     # ------------------------------------------------------------------ reads
 
@@ -110,42 +122,91 @@ class ExamSubjectRegistry:
 
     # ------------------------------------------------------------------ resume
 
+    @property
+    def continuity(self) -> ContinuityMode:
+        """Continuity health of this camera registry right now."""
+        return self._continuity
+
+    @property
+    def awaiting_continuity(self) -> tuple[int, ...]:
+        """Subjects that survived an interruption and are not re-bound yet."""
+        return tuple(sorted(self._awaiting_continuity))
+
     def restore(
         self,
-        rows: Iterable[tuple[int, datetime, datetime]],
+        rows: Iterable[object],
     ) -> tuple[SubjectEvent, ...]:
-        """Reloads persisted subjects after a restart.
+        """Reloads existing subjects after a stream reset or service restart.
 
-        Numbers stay reserved and history is preserved. Restored subjects have no
-        motion evidence, so they are ``LOST``/``UNRESOLVED`` and can only be
-        re-observed as new tracks — never silently re-bound from stale geometry.
+        Numbers stay reserved and history is preserved. Restored subjects are
+        never re-bound from a stale raw tracker id: ownership must be re-earned
+        through safe short-gap recovery. Until every restored subject has been
+        recovered, this registry refuses to allocate a NEW number, so a returning
+        person can never become a second identity.
+
+        A restored subject that still carries trustworthy motion state leaves the
+        camera ``RECOVERING`` (safe recovery is possible); without motion state
+        the camera is ``COMPROMISED`` and returning tracks stay ``UNRESOLVED``.
         """
         events: list[SubjectEvent] = []
-        for number, first_seen_at, last_seen_at in rows:
+        for item in rows:
+            restored = RestoredSubject.coerce(item)
+            number = int(restored.subject_number)
             if number in self._subjects:
                 continue
-            state = SubjectState(
-                subject_number=int(number),
-                first_seen_at=first_seen_at,
-                last_seen_at=last_seen_at,
-                lifecycle=SubjectLifecycle.LOST,
-                association=TrackAssociation.UNRESOLVED,
+            lifecycle = (
+                SubjectLifecycle.TEMPORARILY_LOST
+                if restored.motion is not None
+                else SubjectLifecycle.LOST
             )
-            self._subjects[state.subject_number] = state
-            self._next_number = max(self._next_number, state.subject_number + 1)
+            state = SubjectState(
+                subject_number=number,
+                first_seen_at=restored.first_seen_at,
+                last_seen_at=restored.last_seen_at,
+                lifecycle=lifecycle,
+                association=TrackAssociation.UNRESOLVED,
+                motion=restored.motion,
+            )
+            self._subjects[number] = state
+            self._next_number = max(self._next_number, number + 1)
+            self._awaiting_continuity.add(number)
             events.append(
                 SubjectEvent(
-                    kind=SubjectEventKind.LOST,
-                    at=last_seen_at,
-                    subject_number=state.subject_number,
+                    kind=SubjectEventKind.TEMPORARILY_LOST
+                    if lifecycle is SubjectLifecycle.TEMPORARILY_LOST
+                    else SubjectEventKind.LOST,
+                    at=restored.last_seen_at,
+                    subject_number=number,
                     label=state.label,
-                    lifecycle=SubjectLifecycle.LOST,
+                    lifecycle=lifecycle,
                     association=TrackAssociation.UNRESOLVED,
                     method=AssociationMethod.RESTORED_AFTER_RESTART,
                     reason="restored_after_restart",
                 )
             )
+        self._refresh_continuity(self._last_frame_at)
         return tuple(events)
+
+    def _refresh_continuity(self, observed_at: Optional[datetime]) -> None:
+        """HEALTHY once nothing is awaiting; else RECOVERING vs COMPROMISED."""
+        awaiting = {
+            number for number in self._awaiting_continuity if number in self._subjects
+        }
+        self._awaiting_continuity = awaiting
+        if not awaiting:
+            self._continuity = ContinuityMode.HEALTHY
+            return
+        recoverable = self._recoverable(observed_at) if observed_at is not None else [
+            self._subjects[number]
+            for number in awaiting
+            if self._subjects[number].motion is not None
+        ]
+        still_recoverable = any(
+            state.subject_number in awaiting for state in recoverable
+        )
+        self._continuity = (
+            ContinuityMode.RECOVERING if still_recoverable else ContinuityMode.COMPROMISED
+        )
 
     # ----------------------------------------------------------------- update
 
@@ -153,6 +214,7 @@ class ExamSubjectRegistry:
         self,
         observations: Iterable[PersonObservation],
         *,
+
         observed_at: datetime,
     ) -> SubjectFrameResult:
         """Applies one analysed frame and reports exactly what changed."""
@@ -184,6 +246,10 @@ class ExamSubjectRegistry:
 
         events.extend(self._advance_attached(frame, observed_at))
         events.extend(self._age_detached(frame, observed_at))
+        # Re-evaluated every frame: RECOVERING degrades to COMPROMISED once the
+        # carried motion evidence of the interrupted subjects is too old to
+        # prove anything.
+        self._refresh_continuity(observed_at)
 
         for raw_id in sorted(frame):
             if self._owner_of(raw_id) is not None:
@@ -217,7 +283,9 @@ class ExamSubjectRegistry:
             decisions=tuple(decisions),
             unresolved=self._unresolved_snapshot(),
             labels=self._labels(frame),
+            continuity=self._continuity,
         )
+
 
     def close(self, *, ended_at: datetime) -> tuple[SubjectEvent, ...]:
         """Ends the exam session: the only legitimate way a subject ends."""
@@ -228,7 +296,11 @@ class ExamSubjectRegistry:
                 continue
             events.extend(self._end_subject(state, ended_at, reason="exam_session_ended"))
         self._pending.clear()
+        # An ended session has nothing left to recover.
+        self._awaiting_continuity.clear()
+        self._continuity = ContinuityMode.HEALTHY
         return tuple(events)
+
 
     # --------------------------------------------------------------- internals
 
@@ -471,10 +543,18 @@ class ExamSubjectRegistry:
         decision: RecoveryDecision,
     ) -> list[SubjectEvent]:
         """Progresses an unowned raw track towards (maybe) earning a subject."""
-        blocked = decision.has_plausible_candidate
-        reason = (
-            "possible_continuation_of_lost_subject" if blocked else "awaiting_qualification"
-        )
+        # Two independent reasons never to allocate a new number:
+        #   1. this track plausibly continues a specific lost subject;
+        #   2. identity continuity of this camera is not established, so ANY
+        #      returning track could be a pre-interruption subject.
+        continuity_hold = self._continuity is not ContinuityMode.HEALTHY
+        blocked = decision.has_plausible_candidate or continuity_hold
+        if decision.has_plausible_candidate:
+            reason = "possible_continuation_of_lost_subject"
+        elif continuity_hold:
+            reason = CONTINUITY_HOLD_REASON
+        else:
+            reason = "awaiting_qualification"
         pending = self._pending.get(raw_tracking_id)
         if pending is None:
             pending = PendingTrack(
@@ -504,10 +584,13 @@ class ExamSubjectRegistry:
                         tracking_id=raw_tracking_id,
                         association=TrackAssociation.UNRESOLVED,
                         association_confidence=decision.score,
-                        reason=decision.reason,
+                        reason=reason
+                        if reason == CONTINUITY_HOLD_REASON
+                        else decision.reason,
                     )
                 )
             return events
+
 
         if not pending.qualifies(self.config):
             return events
@@ -602,6 +685,11 @@ class ExamSubjectRegistry:
                 "release it before binding another raw track"
             )
         state.active_tracking_id = raw_tracking_id
+        # This subject's continuity is proven again: it no longer blocks new
+        # numbering (and the camera returns to HEALTHY once none is left).
+        self._awaiting_continuity.discard(state.subject_number)
+        self._refresh_continuity(observed_at)
+
         state.last_seen_at = observed_at
         state.motion = (
             initial_motion(bbox, observed_at, trajectory_length=self.config.trajectory_length)

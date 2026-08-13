@@ -27,7 +27,10 @@ from ..domain.models import (
     RuleConfig,
     SystemConfig,
 )
+from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
+from ..domain.session_subjects import MotionState, RestoredSubject
+
 
 
 from ..events.subject_state_publisher import SubjectStatePublisher
@@ -50,6 +53,63 @@ from .stream_hub import StreamHub
 
 
 logger = logging.getLogger(__name__)
+
+
+def _restored_subjects(rows) -> list[tuple[Optional[str], RestoredSubject]]:  # noqa: ANN001
+    """Turns persisted subject rows into camera-scoped restoration carriers.
+
+    Motion is carried only when the row holds a complete last box; a partial or
+    missing box means no spatial evidence survived, which leaves that camera
+    continuity-compromised (returning tracks stay UNRESOLVED, never renumbered).
+    """
+    restored: list[tuple[Optional[str], RestoredSubject]] = []
+    for row in rows or ():
+        number = int(row.get("subject_number") or 0)
+        first_seen_at = _parse_moment(row.get("first_seen_at"))
+        last_seen_at = _parse_moment(row.get("last_seen_at")) or first_seen_at
+        if not number or first_seen_at is None or last_seen_at is None:
+            continue
+        motion: Optional[MotionState] = None
+        box = [
+            row.get("last_bbox_x"),
+            row.get("last_bbox_y"),
+            row.get("last_bbox_width"),
+            row.get("last_bbox_height"),
+        ]
+        moved_at = _parse_moment(row.get("motion_updated_at"))
+        if all(value is not None for value in box) and moved_at is not None:
+            motion = MotionState(
+                last_bbox=BBox(*(float(value) for value in box)),
+                velocity_x=float(row.get("velocity_x") or 0.0),
+                velocity_y=float(row.get("velocity_y") or 0.0),
+                updated_at=moved_at,
+            )
+        restored.append(
+            (
+                (str(row["camera_id"]) if row.get("camera_id") else None),
+                RestoredSubject(
+                    subject_number=number,
+                    first_seen_at=first_seen_at,
+                    last_seen_at=last_seen_at,
+                    motion=motion,
+                ),
+            )
+        )
+    return restored
+
+
+def _parse_moment(value) -> Optional[datetime]:  # noqa: ANN001
+    """Parses an ISO timestamp from the database; ``None`` when unusable."""
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
 
 
 def _independent_frame_copy(frame):  # noqa: ANN001, ANN201 - opaque frame object
@@ -743,6 +803,14 @@ class Orchestrator:
         )
         if highest:
             self.subjects.reserve_numbers(exam_session_id, highest)
+        # Identity survives the restart: existing subjects are re-adopted with
+        # whatever motion evidence was persisted, so a returning person is
+        # recovered onto their original label or stays UNRESOLVED — never
+        # renumbered.
+        restored = tuple(_restored_subjects(history))
+        if restored:
+            self.subjects.restore_session(exam_session_id, restored)
+
         if status != "active":
             self.repository.set_exam_session_runtime(
                 exam_session_id, status="active", started_at=started_at

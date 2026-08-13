@@ -8,7 +8,7 @@ import pytest
 
 from app.domain.geometry import BBox
 from app.domain.observations import FrameObservations, PersonObservation
-from app.domain.session_subjects import SubjectRegistryConfig
+from app.domain.session_subjects import UNRESOLVED_TRACK_LABEL, SubjectRegistryConfig
 from app.events.subject_state_publisher import SubjectStatePublisher
 from app.runtime.subject_runtime import ArmedSession, SubjectRuntime
 
@@ -182,17 +182,20 @@ def test_camera_reset_keeps_subject_numbers_and_releases_raw_tracks_only():
         for item in runtime.snapshots("session-1")
     }
     assert states == {
-        "S001": ("lost", "unresolved"),
+        "S001": ("temporarily_lost", "unresolved"),
         "S002": ("active", "confirmed"),
     }
     # The raw id of the previous incarnation is closed, the subject is not ended.
     assert repo.closed[-1]["raw_tracking_id"] == "7"
     assert all(row["lifecycle_status"] != "ended" for row in repo.subjects)
-    # The next person on that camera gets a NEW number, never S001 again.
+    # A track appearing much later cannot be proven to be S001 — and must NOT
+    # become a new permanent identity either. It stays UNRESOLVED.
     for index in range(3):
         result = runtime.observe(frame("cam-1", "88", BOX, at(20.0 + index * 0.2)))
     assert result is not None
-    assert sorted(item.label for item in result.subjects) == ["S001", "S003"]
+    assert sorted(item.label for item in result.subjects) == ["S001"]
+    assert dict(result.labels)["88"] == UNRESOLVED_TRACK_LABEL
+
 
 
 def test_status_reports_measured_facts_only():

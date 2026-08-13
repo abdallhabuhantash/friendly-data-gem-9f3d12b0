@@ -451,9 +451,13 @@ def test_restore_reserves_numbers_and_refuses_geometric_rebinding():
     ]
     assert [item.label for item in reg.snapshots()] == ["S001", "S002"]
     assert all(item.motion is None for item in reg.snapshots())
+    # No stale geometry is reused AND no third number is minted: without motion
+    # evidence the returning track can only stay UNRESOLVED.
     result = qualify(reg, "7", LEFT)
-    assert [item.label for item in result.subjects] == ["S001", "S002", "S003"]
+    assert [item.label for item in result.subjects] == ["S001", "S002"]
+    assert dict(result.labels)["7"] == UNRESOLVED_TRACK_LABEL
     assert result.decisions[0].reason == "no_plausible_subject"
+
 
 
 def test_close_ends_every_open_subject_and_segment():
