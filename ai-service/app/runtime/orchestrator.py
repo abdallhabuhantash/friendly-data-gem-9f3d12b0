@@ -737,8 +737,26 @@ class Orchestrator:
                 )
 
     # --- exam session arming ---------------------------------------------
+    def _hydrate_session(self, exam_session_id: str) -> tuple[tuple, int]:
+        """Reads everything an already-active session needs before arming.
+
+        Raises when the history cannot be read: callers must then leave the
+        session unarmed instead of guessing an empty history.
+        """
+        self.subject_publisher.bind_existing(
+            exam_session_id, self.repository.existing_subject_rows(exam_session_id)
+        )
+        history = self.repository.open_subject_history(exam_session_id)
+        highest = max((int(row.get("subject_number") or 0) for row in history), default=0)
+        return tuple(_restored_subjects(history)), highest
+
     def _sync_armed_sessions(self) -> None:
-        """Mirrors the console: `active` sessions are armed, others are not."""
+        """Mirrors the console: `active` sessions are armed, others are not.
+
+        A session discovered here is already ACTIVE in the database, so it may
+        already own persisted S-numbers. It is armed through the hydrated path
+        only; a failed history read leaves subject identity unarmed.
+        """
         if self.subjects is None:
             return
         try:
@@ -747,13 +765,17 @@ class Orchestrator:
             logger.warning("Armed exam session refresh failed: %s", type(exc).__name__)
             return
         self.subjects.sync(
-            ArmedSession(
-                exam_session_id=str(row["id"]),
-                camera_ids=tuple(row.get("camera_ids") or ()),
-            )
-            for row in rows
-            if row.get("id")
+            (
+                ArmedSession(
+                    exam_session_id=str(row["id"]),
+                    camera_ids=tuple(row.get("camera_ids") or ()),
+                )
+                for row in rows
+                if row.get("id")
+            ),
+            hydrate=lambda session: self._hydrate_session(session.exam_session_id),
         )
+
 
     def arm_exam_session(self, exam_session_id: str) -> dict:
         """Arms monitoring for one configured exam session, from a clean state.
