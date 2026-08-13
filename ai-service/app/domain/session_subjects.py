@@ -477,3 +477,27 @@ def recovery_score(
     distance = normalized_distance(observed.center, predicted)
     proximity = 0.0 if distance >= 1.5 else max(0.0, 1.0 - distance / 1.5)
     return round(min(1.0, max(0.0, 0.6 * overlap + 0.4 * proximity)), 6)
+
+
+@dataclass(frozen=True, slots=True)
+class RestoredSubject:
+    """One already-existing subject reloaded after an interruption.
+
+    Carries only anonymous state that was already persisted or held in memory:
+    the immutable number, its timestamps and — when still trustworthy — the last
+    motion state. ``motion=None`` means no spatial evidence survived, which makes
+    safe recovery impossible and the affected camera continuity-compromised.
+    """
+
+    subject_number: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    motion: Optional[MotionState] = None
+
+    @classmethod
+    def coerce(cls, item) -> "RestoredSubject":  # noqa: ANN001
+        """Accepts a ``RestoredSubject`` or a plain ``(number, first, last)``."""
+        if isinstance(item, RestoredSubject):
+            return item
+        number, first_seen_at, last_seen_at = item
+        return cls(int(number), first_seen_at, last_seen_at)
