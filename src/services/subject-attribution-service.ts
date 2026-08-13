@@ -76,7 +76,7 @@ export const subjectAttributionService = {
     const { error } = await supabase.rpc("resolve_subject_identity", {
       _session_subject_id: input.sessionSubjectId,
       _exam_roster_student_id: input.rosterStudentId,
-      _correction_reason: input.correctionReason ?? null,
+      _correction_reason: input.correctionReason,
     });
     fail(error);
   },
