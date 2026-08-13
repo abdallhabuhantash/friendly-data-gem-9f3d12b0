@@ -73,10 +73,11 @@ export const subjectAttributionService = {
     rosterStudentId: string;
     correctionReason?: string | undefined;
   }): Promise<void> {
+    const reason = input.correctionReason?.trim();
     const { error } = await supabase.rpc("resolve_subject_identity", {
       _session_subject_id: input.sessionSubjectId,
       _exam_roster_student_id: input.rosterStudentId,
-      _correction_reason: input.correctionReason,
+      ...(reason ? { _correction_reason: reason } : {}),
     });
     fail(error);
   },
