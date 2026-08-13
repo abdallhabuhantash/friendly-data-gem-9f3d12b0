@@ -20,11 +20,13 @@ from typing import Iterable, Optional
 
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import (
+    RestoredSubject,
     SubjectEventKind,
     SubjectFrameResult,
     SubjectRegistryConfig,
     SubjectSnapshot,
 )
+
 from ..ai.subject_registry import ExamSubjectRegistry
 
 logger = logging.getLogger(__name__)
