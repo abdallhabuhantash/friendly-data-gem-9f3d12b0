@@ -7,6 +7,7 @@ import {
 } from "@/components/common/EventBadges";
 import { DetectionOverlayLayer } from "@/components/monitoring/DetectionOverlayLayer";
 import { ReviewConfirmDialog, type ReviewDecision } from "@/components/events/ReviewConfirmDialog";
+import { SubjectAttributionSummary } from "@/components/events/SubjectAttributionSummary";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/event-presentation";
 import { formatTimestamp } from "@/lib/format";
 import { overlaysFromEvidence } from "@/services/detection-overlays";
-import type { DetectionEvent, EventStatus } from "@/types";
+import type { DetectionEvent, EventStatus, EventSubjectAttribution } from "@/types";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -86,14 +87,19 @@ function SnapshotEvidence({ event, showOverlay }: { event: DetectionEvent; showO
 
 export function EventDetailsDialog({
   event,
+  attributions,
   pending,
   onOpenChange,
   onReview,
+  onResolveIdentity,
 }: {
   event: DetectionEvent | null;
+  attributions: readonly EventSubjectAttribution[];
   pending: boolean;
   onOpenChange: (open: boolean) => void;
   onReview: (input: { id: string; status: EventStatus; note?: string | undefined }) => void;
+  /** Opens the human identity-resolution flow for one anonymous subject. */
+  onResolveIdentity: (attribution: EventSubjectAttribution) => void;
 }) {
   const [note, setNote] = useState("");
   const [showOverlay, setShowOverlay] = useState(true);
@@ -157,6 +163,39 @@ export function EventDetailsDialog({
                 {event.reviewedAt ? formatTimestamp(event.reviewedAt) : "—"}
               </Row>
             </div>
+            {event.examSessionId && (
+              <div className="space-y-1.5 rounded-[4px] border border-border/70 bg-background/50 p-2">
+                <span className="label-tech text-muted-foreground">Anonymous subjects</span>
+                <SubjectAttributionSummary
+                  attributions={attributions}
+                  examSessionId={event.examSessionId}
+                />
+                {attributions.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    No subject ownership was confirmed in the detection frame, so this event stays
+                    unattributed. No identity can be resolved from it.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {attributions.map((item) => (
+                      <Button
+                        key={item.eventSubjectId || item.participantIndex}
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => onResolveIdentity(item)}
+                      >
+                        {item.resolution ? "Correct" : "Resolve"} {item.subjectLabel}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Subject labels are anonymous monitoring identifiers. A student name appears only
+                  after a human resolved it, and stays attributed to that reviewer.
+                </p>
+              </div>
+            )}
             {event.note && (
               <p className="rounded-[4px] border border-border/70 bg-background/50 p-2 text-[11px] text-muted-foreground">
                 {event.note}

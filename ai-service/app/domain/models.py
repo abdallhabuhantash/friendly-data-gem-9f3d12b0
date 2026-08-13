@@ -9,9 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from .geometry import BBox
+
+if TYPE_CHECKING:  # avoids a runtime import cycle; attribution is a pure layer
+    from .event_attribution import EventSubjectLink
+
 
 CLASS_PERSON = "person"
 CLASS_PHONE = "cell_phone"
@@ -175,6 +179,12 @@ class AiEvent:
     evidence: list[EvidenceItem] = field(default_factory=list)
     snapshot_path: Optional[str] = None
     status: str = "new"
+    #: Set only when an exam session was armed for this camera at detection
+    #: time. Ordinary surveillance events keep it None.
+    exam_session_id: Optional[str] = None
+    #: Audit-only anonymous subject participation facts for THIS frame. They
+    #: are persisted beside the event and never alter its claim.
+    subject_links: tuple["EventSubjectLink", ...] = ()
 
     def to_row(self) -> dict[str, Any]:
         """Row shape defined by docs/ai-event-contract.md."""
@@ -203,6 +213,7 @@ class AiEvent:
             "evidence": [item.to_dict() for item in self.evidence],
             "source_mode": self.source_mode,
             "snapshot_path": self.snapshot_path,
+            "exam_session_id": self.exam_session_id,
             "detected_at": self.detected_at.isoformat(),
             # `note` is human-review text only and is never written by the AI.
             "note": None,

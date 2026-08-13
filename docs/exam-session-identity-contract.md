@@ -142,8 +142,7 @@ exclusive raw-track ownership, mobility-aware short-gap recovery, lifecycle vs
 association reporting, atomic per-session numbering, and anonymous labels on the
 annotated stream, where an unowned raw track is drawn as `UNRESOLVED`).
 
-Deliberately **not** implemented here: event identity resolution,
-`event_subjects`, subject thumbnails, Locate Subject, recording/clips, paper
+Deliberately **not** implemented here: subject thumbnails, Locate Subject, recording/clips, paper
 detector runtime integration, seats, QR check-in, facial recognition, and the
 Start Exam Session runtime action.
 
@@ -172,3 +171,42 @@ Consequences guaranteed by tests: `S001` never becomes `S002` because tracking
 continuity was lost; when continuity cannot be proven the returning track stays
 `UNRESOLVED` rather than receiving a new permanent identity; already-used
 numbers stay reserved forever.
+
+
+## Event attribution (anonymous by default)
+
+Events are attributed to anonymous subjects, never to people.
+
+- `events.exam_session_id` is set only when an exam session was armed for that
+  camera at detection time. Ordinary surveillance events keep it `null`.
+- `event_subjects` records one audit row per participating subject, with a
+  `participant_index` (1 = the person track the event itself associated) and the
+  registry's own association confidence.
+- Attribution is derived from the **same analysed frame** that raised the event,
+  using only ownership the registry had already CONFIRMED. An `UNRESOLVED` raw
+  track is never turned into a subject.
+- Missing attribution is a valid outcome. The event is shown as
+  *Unattributed*; it is never attached to a guessed subject.
+- Attribution never alters detection, severity or association status. It adds
+  facts beside the event; it never strengthens its claim.
+- Links are queued durably by `(exam_session_id, subject_number)` and written
+  only after the event row exists, so a subject persisted slightly later still
+  gets its link, and a duplicate retry can never create a second link.
+
+## On-demand identity resolution (human-only)
+
+`subject_identity_resolutions` records that a **human** decided an anonymous
+subject represents one roster student of the same exam session.
+
+- Never automatic, never inferred, never suggested by the AI. There is no
+  scoring, ranking or pre-selection of candidate students anywhere.
+- The resolver is taken from the signed-in session server-side, never from
+  client input.
+- At most one active identity per subject, and at most one active identity per
+  roster student, within one exam session — enforced by the database.
+- Corrections require a written reason. The superseded decision is revoked with
+  its author, timestamp and reason preserved; history is never overwritten or
+  deleted.
+- The anonymous label always remains visible. A resolved student name is shown
+  **beside** `S00n`, never instead of it, so an operator can always see that the
+  identity is a human judgement rather than an AI conclusion.

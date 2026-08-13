@@ -126,6 +126,44 @@ export interface DetectionEvent {
   detectionFrameCount: number | null;
   evidence: DetectionEvidence[];
   sourceMode: EventSourceMode;
+  /**
+   * The exam session that was actively monitoring this camera at detection
+   * time, or null for ordinary surveillance events.
+   */
+  examSessionId: string | null;
+}
+
+/**
+ * One audited event <-> anonymous subject participation fact, optionally joined
+ * with the currently active human identity resolution.
+ *
+ * Attribution is anonymous by default. `resolution` is non-null only after a
+ * human explicitly determined which roster student the subject represents; the
+ * AI never produces it.
+ */
+export interface EventSubjectAttribution {
+  eventSubjectId: string;
+  eventId: string;
+  examSessionId: string;
+  sessionSubjectId: string;
+  subjectNumber: number;
+  subjectLabel: string;
+  participantIndex: number;
+  participantRole: string;
+  linkMethod: string;
+  linkConfidence: number | null;
+  linkedAt: string;
+  resolution: SubjectIdentityResolution | null;
+}
+
+/** A human decision that an anonymous subject represents one roster student. */
+export interface SubjectIdentityResolution {
+  id: string;
+  rosterStudentId: string;
+  studentFullName: string;
+  studentUniversityId: string;
+  resolvedAt: string;
+  resolvedByName: string | null;
 }
 
 /** Canonical alias for the structured AI event contract. */

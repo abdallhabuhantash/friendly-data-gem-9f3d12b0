@@ -208,6 +208,35 @@ class SupabaseRepository:
         self._client.table("events").update({"snapshot_path": snapshot_path}).eq(
             "id", event_id
         ).execute()
+
+    def insert_event_subject(self, row: dict[str, Any]) -> None:
+        """Adds one audit link between an event and an anonymous subject.
+
+        Idempotent by design: the database rejects a duplicate
+        (event_id, session_subject_id) or (event_id, participant_index) pair, so
+        a retry is treated as already-done rather than as a failure.
+        """
+        try:
+            self._client.table("event_subjects").insert(row).execute()
+        except Exception as exc:
+            message = str(exc)
+            if "duplicate key" in message or "23505" in message:
+                raise DuplicateEventError(str(row.get("event_id", ""))) from exc
+            raise
+
+    def session_subject_row_id(self, exam_session_id: str, subject_number: int) -> Optional[str]:
+        """Resolves the persisted row id of one anonymous subject, or None."""
+        response = (
+            self._client.table("session_subjects")
+            .select("id")
+            .eq("exam_session_id", exam_session_id)
+            .eq("subject_number", int(subject_number))
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        return str(rows[0]["id"]) if rows else None
+
     # --- exam sessions (anonymous subject runtime) -------------------------
     def exam_session(self, exam_session_id: str) -> Optional[dict[str, Any]]:
         """Session row plus its linked camera ids. No roster data is read."""
