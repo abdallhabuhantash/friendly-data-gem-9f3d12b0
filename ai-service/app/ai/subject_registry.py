@@ -36,10 +36,12 @@ from ..domain.observations import PersonObservation
 from ..domain.session_subjects import (
     UNRESOLVED_TRACK_LABEL,
     AssociationMethod,
+    ContinuityMode,
     MotionState,
     PendingTrack,
     RecoveryCandidate,
     RecoveryDecision,
+    RestoredSubject,
     SubjectEvent,
     SubjectEventKind,
     SubjectFrameResult,
@@ -57,6 +59,10 @@ from ..domain.session_subjects import (
 
 #: Lifecycles from which a subject may still reclaim a raw track.
 _RECOVERABLE = (SubjectLifecycle.TEMPORARILY_LOST, SubjectLifecycle.LOST)
+
+#: Why a raw track is held UNRESOLVED instead of earning a new number.
+CONTINUITY_HOLD_REASON = "continuity_not_established_after_interruption"
+
 
 
 class ExamSubjectRegistry:
