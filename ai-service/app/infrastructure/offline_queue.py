@@ -36,6 +36,16 @@ CREATE TABLE IF NOT EXISTS pending_notifications (
     delivered  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (event_id, provider)
 );
+CREATE TABLE IF NOT EXISTS pending_subject_links (
+    event_id          TEXT NOT NULL,
+    participant_index INTEGER NOT NULL,
+    payload           TEXT NOT NULL,
+    created_at        REAL NOT NULL,
+    attempts          INTEGER NOT NULL DEFAULT 0,
+    last_error        TEXT,
+    next_attempt      REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (event_id, participant_index)
+);
 CREATE TABLE IF NOT EXISTS pending_evidence (
     event_id     TEXT PRIMARY KEY,
     object_path  TEXT NOT NULL,
@@ -60,6 +70,21 @@ class PendingEvent:
 class PendingNotification:
     event_id: str
     provider: str
+    payload: dict[str, Any]
+    attempts: int
+
+
+@dataclass
+class PendingSubjectLink:
+    """An event -> anonymous subject link that still has to reach Supabase.
+
+    The link is stored by (exam_session_id, subject_number) rather than by
+    database row id, so a retry can resolve the subject row even when the
+    subject had not been persisted yet at detection time.
+    """
+
+    event_id: str
+    participant_index: int
     payload: dict[str, Any]
     attempts: int
 
@@ -193,6 +218,72 @@ class OfflineQueue:
                 "SELECT COUNT(*) AS total FROM pending_notifications WHERE delivered = 0"
             ).fetchone()
         return int(row["total"])
+
+    # --- pending subject attribution links --------------------------------
+    def enqueue_subject_link(
+        self, event_id: str, participant_index: int, payload: dict[str, Any]
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO pending_subject_links"
+                " (event_id, participant_index, payload, created_at) VALUES (?, ?, ?, ?)",
+                (event_id, int(participant_index), json.dumps(payload), time.time()),
+            )
+            self._conn.commit()
+
+    def due_subject_links(
+        self, limit: int = 10, now: Optional[float] = None
+    ) -> list[PendingSubjectLink]:
+        moment = time.time() if now is None else now
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM pending_subject_links WHERE next_attempt <= ?"
+                " ORDER BY created_at, participant_index LIMIT ?",
+                (moment, limit),
+            ).fetchall()
+        return [
+            PendingSubjectLink(
+                event_id=row["event_id"],
+                participant_index=int(row["participant_index"]),
+                payload=json.loads(row["payload"]),
+                attempts=row["attempts"],
+            )
+            for row in rows
+        ]
+
+    def mark_subject_link_sent(self, event_id: str, participant_index: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM pending_subject_links WHERE event_id = ? AND participant_index = ?",
+                (event_id, int(participant_index)),
+            )
+            self._conn.commit()
+
+    def mark_subject_link_failed(
+        self, event_id: str, participant_index: int, error: str, backoff_seconds: float = 30.0
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE pending_subject_links SET attempts = attempts + 1, last_error = ?,"
+                " next_attempt = ? WHERE event_id = ? AND participant_index = ?",
+                (error[:500], time.time() + backoff_seconds, event_id, int(participant_index)),
+            )
+            self._conn.commit()
+
+    def subject_link_depth(self) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS total FROM pending_subject_links"
+            ).fetchone()
+        return int(row["total"])
+
+    def has_pending_event(self, event_id: str) -> bool:
+        """True while the event row itself has not reached Supabase yet."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM pending_events WHERE event_id = ? LIMIT 1", (event_id,)
+            ).fetchone()
+        return row is not None
 
     # --- pending evidence (stored event, snapshot not uploaded yet) --------
     def enqueue_evidence(self, event_id: str, object_path: str, local_path: str) -> None:
