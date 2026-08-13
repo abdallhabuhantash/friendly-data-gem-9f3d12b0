@@ -194,10 +194,11 @@ class SubjectRuntime:
     def reset_camera(self, camera_id: str) -> None:
         """A new stream incarnation must not inherit raw-track bindings.
 
-        Existing subjects keep their numbers reserved: the registry is rebuilt
-        with the same subjects marked LOST/UNRESOLVED, so a person re-observed
-        after a stream restart can never be given a second label, and the old
-        raw ids of the previous incarnation are not trusted.
+        Existing subjects keep their numbers reserved and their last trustworthy
+        motion state is carried over, so a person re-observed after a stream
+        restart is either safely recovered onto the SAME label or stays
+        UNRESOLVED. The camera is continuity-guarded until then, which is what
+        prevents a returning subject from ever earning a second number.
         """
         moment = datetime.now(timezone.utc)
         with self._lock:
@@ -209,7 +210,12 @@ class SubjectRuntime:
             carried = previous.snapshots()
             registry = state.registry_for(camera_id)
             restored = registry.restore(
-                (item.subject_number, item.first_seen_at, item.last_seen_at)
+                RestoredSubject(
+                    subject_number=item.subject_number,
+                    first_seen_at=item.first_seen_at,
+                    last_seen_at=item.last_seen_at,
+                    motion=item.motion,
+                )
                 for item in carried
                 if item.is_open
             )
@@ -221,6 +227,7 @@ class SubjectRuntime:
             if event.kind is not SubjectEventKind.ENDED
         )
         events = release_events + restored
+
         if events:
             self._publisher.record_events(
                 exam_session_id=state.session.exam_session_id,
