@@ -283,16 +283,25 @@ class SupabaseRepository:
         }
 
     def open_subject_history(self, exam_session_id: str) -> list[dict[str, Any]]:
-        """Subjects a previous run created, so their numbers stay reserved."""
+        """Subjects a previous run created, with their last motion evidence.
+
+        The motion columns are what lets a restarted service recover a returning
+        person onto the SAME subject number instead of numbering them again.
+        """
         response = (
             self._client.table("session_subjects")
-            .select("subject_number,first_seen_at,last_seen_at,lifecycle_status")
+            .select(
+                "subject_number,first_seen_at,last_seen_at,lifecycle_status,camera_id,"
+                "last_bbox_x,last_bbox_y,last_bbox_width,last_bbox_height,"
+                "velocity_x,velocity_y,motion_updated_at"
+            )
             .eq("exam_session_id", exam_session_id)
             .neq("lifecycle_status", "ended")
             .order("subject_number")
             .execute()
         )
         return [dict(row) for row in (response.data or [])]
+
 
     def allocate_subject_number(self, exam_session_id: str) -> int:
         """Atomic, gap-free, monotonic per-session number from the database.
