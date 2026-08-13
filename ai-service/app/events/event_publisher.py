@@ -12,6 +12,13 @@ row (``set_event_snapshot``). It never upserts or re-inserts the row, so a
 human review decision (``status``, ``reviewed_by``, ``reviewed_at``, notes)
 can never be overwritten by a late-arriving snapshot upload.
 
+Anonymous subject attribution
+-----------------------------
+Event -> anonymous subject links are audit facts written AFTER the event row
+exists. They are queued durably by ``(exam_session_id, subject_number)``, never
+by row id, because a subject may not have been persisted yet at detection time.
+A missing or unresolvable subject never blocks or discards the event.
+
 Local file ownership
 --------------------
 The local annotated JPEG is deleted only when no pending evidence job and no
@@ -82,6 +89,12 @@ class EventPublisher:
                     event, snapshot_file=str(local_file) if local_file else None
                 )
 
+        # Attribution is queued unconditionally so an outage cannot lose the
+        # audit trail; links are only sent once the event row itself exists.
+        self._enqueue_subject_links(event)
+        if stored:
+            self.retry_pending_subject_links(limit=len(getattr(event, "subject_links", ()) or ()))
+
         # Cleanup only when nothing pending still needs the local file.
         if stored and local_file is not None:
             self._release_local(local_file)
@@ -104,6 +117,85 @@ class EventPublisher:
                     pending.event_id, "insert failed", backoff_seconds=min(300, 15 * (pending.attempts + 1))
                 )
         return sent
+
+    def retry_pending_subject_links(self, limit: int = 10) -> int:
+        """Drains queued event -> anonymous subject links.
+
+        A link is attempted only when its event row already reached Supabase.
+        A subject that cannot be resolved yet is retried with backoff and is
+        never replaced by a guessed identity.
+        """
+        if limit <= 0:
+            return 0
+        linked = 0
+        for pending in self._queue.due_subject_links(limit=limit):
+            if self._queue.has_pending_event(pending.event_id):
+                continue  # the event itself is still queued; try again later
+            payload = pending.payload
+            exam_session_id = payload.get("exam_session_id")
+            subject_number = payload.get("subject_number")
+            if not exam_session_id or not subject_number:
+                # Nothing truthful can be written from an incomplete link.
+                self._queue.mark_subject_link_sent(pending.event_id, pending.participant_index)
+                continue
+
+            subject_row_id: Optional[str] = None
+            try:
+                subject_row_id = self._repository.session_subject_row_id(
+                    str(exam_session_id), int(subject_number)
+                )
+            except Exception as exc:
+                logger.error(
+                    "Resolving subject %s of session %s failed: %s",
+                    subject_number,
+                    exam_session_id,
+                    type(exc).__name__,
+                )
+
+            if not subject_row_id:
+                self._queue.mark_subject_link_failed(
+                    pending.event_id,
+                    pending.participant_index,
+                    "subject row not available yet",
+                    backoff_seconds=min(
+                        EVIDENCE_BACKOFF_MAX, EVIDENCE_BACKOFF_STEP * (pending.attempts + 1)
+                    ),
+                )
+                continue
+
+            row = {
+                "event_id": pending.event_id,
+                "exam_session_id": str(exam_session_id),
+                "session_subject_id": subject_row_id,
+                "participant_index": pending.participant_index,
+                "participant_role": payload.get("participant_role", "subject"),
+                "link_method": payload.get("link_method", "frame_subject_ownership"),
+                "link_confidence": payload.get("link_confidence"),
+            }
+            try:
+                self._repository.insert_event_subject(row)
+            except self._duplicate_error:
+                # Already recorded: a retry is success, never a second link.
+                pass
+            except Exception as exc:
+                logger.error(
+                    "Subject link insert failed for event %s: %s",
+                    pending.event_id,
+                    type(exc).__name__,
+                )
+                self._queue.mark_subject_link_failed(
+                    pending.event_id,
+                    pending.participant_index,
+                    "insert failed",
+                    backoff_seconds=min(
+                        EVIDENCE_BACKOFF_MAX, EVIDENCE_BACKOFF_STEP * (pending.attempts + 1)
+                    ),
+                )
+                continue
+
+            self._queue.mark_subject_link_sent(pending.event_id, pending.participant_index)
+            linked += 1
+        return linked
 
     def retry_pending_evidence(self, limit: int = 5) -> int:
         """Uploads snapshots for events that are already stored in Supabase.
@@ -164,6 +256,31 @@ class EventPublisher:
         return attached
 
     # --- internals --------------------------------------------------------
+    def _enqueue_subject_links(self, event) -> None:  # noqa: ANN001 - AiEvent
+        """Stores this frame's attribution facts durably. Never raises."""
+        links = getattr(event, "subject_links", ()) or ()
+        exam_session_id = getattr(event, "exam_session_id", None)
+        if not links or not exam_session_id:
+            return
+        for link in links:
+            try:
+                self._queue.enqueue_subject_link(
+                    event.id,
+                    link.participant_index,
+                    {
+                        "exam_session_id": exam_session_id,
+                        "subject_number": link.subject_number,
+                        "subject_label": link.subject_label,
+                        "participant_role": link.participant_role,
+                        "link_method": link.link_method,
+                        "link_confidence": link.link_confidence,
+                    },
+                )
+            except Exception as exc:  # attribution must never break publishing
+                logger.error(
+                    "Queueing subject attribution for %s failed: %s", event.id, type(exc).__name__
+                )
+
     def _release_local(self, local_file: Path) -> None:
         """Deletes the local snapshot only when no queue still references it."""
         if self._snapshots is None:
