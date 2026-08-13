@@ -8,6 +8,7 @@ import {
 import { DetectionOverlayLayer } from "@/components/monitoring/DetectionOverlayLayer";
 import { ReviewConfirmDialog, type ReviewDecision } from "@/components/events/ReviewConfirmDialog";
 import { SubjectAttributionSummary } from "@/components/events/SubjectAttributionSummary";
+import type { EventAttributionDisplay } from "@/lib/attribution-state";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -87,14 +88,15 @@ function SnapshotEvidence({ event, showOverlay }: { event: DetectionEvent; showO
 
 export function EventDetailsDialog({
   event,
-  attributions,
+  attributionDisplay,
   pending,
   onOpenChange,
   onReview,
   onResolveIdentity,
 }: {
   event: DetectionEvent | null;
-  attributions: readonly EventSubjectAttribution[];
+  /** Truthful attribution read state for THIS event (never guessed). */
+  attributionDisplay: EventAttributionDisplay;
   pending: boolean;
   onOpenChange: (open: boolean) => void;
   onReview: (input: { id: string; status: EventStatus; note?: string | undefined }) => void;
@@ -166,18 +168,24 @@ export function EventDetailsDialog({
             {event.examSessionId && (
               <div className="space-y-1.5 rounded-[4px] border border-border/70 bg-background/50 p-2">
                 <span className="label-tech text-muted-foreground">Anonymous subjects</span>
-                <SubjectAttributionSummary
-                  attributions={attributions}
-                  examSessionId={event.examSessionId}
-                />
-                {attributions.length === 0 ? (
+                <SubjectAttributionSummary display={attributionDisplay} />
+                {attributionDisplay.kind === "loading" ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    Reading persisted subject attribution for this event…
+                  </p>
+                ) : attributionDisplay.kind === "unavailable" ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    The subject attribution could not be read, so it is unknown for now. This is not
+                    the same as unattributed.
+                  </p>
+                ) : attributionDisplay.kind !== "attributed" ? (
                   <p className="text-[10px] text-muted-foreground">
                     No subject ownership was confirmed in the detection frame, so this event stays
                     unattributed. No identity can be resolved from it.
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
-                    {attributions.map((item) => (
+                    {attributionDisplay.rows.map((item) => (
                       <Button
                         key={item.eventSubjectId || item.participantIndex}
                         size="sm"
