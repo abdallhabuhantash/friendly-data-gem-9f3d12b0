@@ -296,7 +296,11 @@ class ExamSubjectRegistry:
                 continue
             events.extend(self._end_subject(state, ended_at, reason="exam_session_ended"))
         self._pending.clear()
+        # An ended session has nothing left to recover.
+        self._awaiting_continuity.clear()
+        self._continuity = ContinuityMode.HEALTHY
         return tuple(events)
+
 
     # --------------------------------------------------------------- internals
 
