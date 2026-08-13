@@ -6,7 +6,8 @@ durable, retry-safe attribution path of `EventPublisher`.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,8 +30,9 @@ from app.events.event_publisher import EventPublisher
 from app.infrastructure.offline_queue import OfflineQueue
 
 NOW = datetime(2026, 3, 1, 9, 0, tzinfo=timezone.utc)
-#: Far enough ahead that any recorded retry backoff window has elapsed.
-FUTURE = NOW.timestamp() + 86_400.0
+#: Far enough ahead of wall-clock time that any recorded backoff has elapsed.
+def future_moment() -> float:
+    return time.time() + 86_400.0
 SESSION = "11111111-1111-1111-1111-111111111111"
 
 
@@ -228,7 +230,7 @@ def test_link_waits_until_the_subject_row_exists(queue: OfflineQueue) -> None:
 
     # The subject is persisted a moment later: the same event gets its link.
     repo.subject_rows[(SESSION, 1)] = "subject-row-1"
-    assert publisher.retry_pending_subject_links(now=FUTURE) == 1
+    assert publisher.retry_pending_subject_links(now=future_moment()) == 1
     assert repo.links[0]["event_id"] == "event-1"
     assert queue.subject_link_depth() == 0
 
@@ -237,17 +239,18 @@ def test_link_is_not_written_while_the_event_is_still_queued(queue: OfflineQueue
     repo = FakeRepo()
     repo.insert_events_fail = True
     repo.subject_rows[(SESSION, 1)] = "subject-row-1"
-    publisher = EventPublisher(repo, queue)
+    # A transport failure is NOT a duplicate: the event must be queued.
+    publisher = EventPublisher(repo, queue, duplicate_error=ValueError)
     links = attribute_event_subjects(frame_result(snapshot(1, "t-7")), primary_tracking_id="t-7")
 
     assert publisher.publish(make_event(exam_session_id=SESSION, subject_links=links)) is False
-    assert publisher.retry_pending_subject_links(now=FUTURE) == 0
+    assert publisher.retry_pending_subject_links(now=future_moment()) == 0
     assert queue.subject_link_depth() == 1
 
     # Once the event itself lands, the queued link becomes writable.
     repo.insert_events_fail = False
     assert publisher.retry_pending() == 1
-    assert publisher.retry_pending_subject_links(now=FUTURE) == 1
+    assert publisher.retry_pending_subject_links(now=future_moment()) == 1
     assert repo.links[0]["session_subject_id"] == "subject-row-1"
 
 
@@ -300,6 +303,6 @@ def test_attribution_backoff_is_bounded(queue: OfflineQueue) -> None:
 
     # Not yet due: the retry respects the recorded backoff window.
     assert publisher.retry_pending_subject_links() == 0
-    due = queue.due_subject_links(now=NOW.timestamp() + timedelta(days=1).total_seconds())
+    due = queue.due_subject_links(now=future_moment())
     assert len(due) == 1
     assert due[0].attempts >= 1
