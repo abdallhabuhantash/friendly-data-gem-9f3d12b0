@@ -118,6 +118,47 @@ class SubjectRuntime:
             len(session.camera_ids),
         )
 
+    def restore_session(
+        self,
+        exam_session_id: str,
+        restored: Iterable[tuple[Optional[str], RestoredSubject]],
+    ) -> None:
+        """Re-adopts subjects an earlier run of this session already created.
+
+        Without this, a service restart would meet returning people as brand-new
+        raw tracks and hand them a SECOND permanent number. Restored subjects
+        instead hold their number and put their camera under a continuity guard:
+        a returning track is either recovered onto its original label or stays
+        UNRESOLVED — never renumbered.
+        """
+        grouped: dict[str, list[RestoredSubject]] = {}
+        with self._lock:
+            state = self._sessions.get(exam_session_id)
+            if state is None:
+                return
+            cameras = tuple(state.session.camera_ids)
+            for camera_id, subject in restored:
+                target = camera_id if camera_id in cameras else (cameras[0] if cameras else None)
+                if target is None:
+                    continue
+                grouped.setdefault(target, []).append(subject)
+            events_by_camera = {
+                camera_id: (
+                    state.registry_for(camera_id),
+                    state.registry_for(camera_id).restore(items),
+                )
+                for camera_id, items in grouped.items()
+            }
+        for camera_id, (registry, events) in events_by_camera.items():
+            if events:
+                self._publisher.record_events(
+                    exam_session_id=exam_session_id,
+                    camera_id=camera_id,
+                    subjects=registry.snapshots(),
+                    events=events,
+                )
+
+
     def disarm(self, exam_session_id: str, *, ended_at: Optional[datetime] = None) -> None:
         """Closes every subject of the session truthfully, then forgets it."""
         moment = ended_at or datetime.now(timezone.utc)
