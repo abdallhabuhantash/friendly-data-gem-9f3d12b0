@@ -83,10 +83,29 @@ class TrackAssociation(str, Enum):
     CONFLICT = "conflict"
 
 
+class ContinuityMode(str, Enum):
+    """How much identity continuity evidence a camera registry still has.
+
+    A stream reset or a service restart destroys raw-tracker continuity but must
+    never destroy identity: while continuity is not ``HEALTHY`` no NEW permanent
+    subject number may be allocated for a raw track that could be a returning
+    pre-interruption subject. ``UNRESOLVED`` is preferred over a duplicate.
+    """
+
+    #: Normal operation: qualification and genuine late-arrival numbering work.
+    HEALTHY = "healthy"
+    #: An interruption happened and usable motion evidence was carried over, so
+    #: safe short-gap recovery of the affected subjects is still possible.
+    RECOVERING = "recovering"
+    #: No usable evidence is left to tell returning subjects from new people.
+    COMPROMISED = "compromised"
+
+
 class AssociationMethod(str, Enum):
     INITIAL = "initial"
     SHORT_GAP_REASSOCIATION = "short_gap_reassociation"
     RESTORED_AFTER_RESTART = "restored_after_restart"
+
 
 
 class SubjectEventKind(str, Enum):
