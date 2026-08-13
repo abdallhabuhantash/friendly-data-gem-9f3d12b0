@@ -743,6 +743,14 @@ class Orchestrator:
         )
         if highest:
             self.subjects.reserve_numbers(exam_session_id, highest)
+        # Identity survives the restart: existing subjects are re-adopted with
+        # whatever motion evidence was persisted, so a returning person is
+        # recovered onto their original label or stays UNRESOLVED — never
+        # renumbered.
+        restored = tuple(_restored_subjects(history))
+        if restored:
+            self.subjects.restore_session(exam_session_id, restored)
+
         if status != "active":
             self.repository.set_exam_session_runtime(
                 exam_session_id, status="active", started_at=started_at
