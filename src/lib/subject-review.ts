@@ -12,6 +12,7 @@
  * - One event linked to two subjects appears in both groups while remaining a
  *   single event record with one shared current status.
  */
+import type { AttributionRead } from "@/lib/attribution-state";
 import type { DetectionEvent, EventSubjectAttribution } from "@/types";
 
 export interface SubjectReviewGroup {
@@ -144,4 +145,28 @@ export function unattributedExamEvents(
   return events
     .filter((event) => (attribution.get(event.id) ?? []).length === 0)
     .sort(byDetectedAtDesc);
+}
+
+/**
+ * Truthful whole-panel view for ONE exam session's attribution read.
+ *
+ * A pending or failed attribution read is never turned into "unattributed
+ * events"; only a successful read with zero links is.
+ */
+export type SubjectReviewView =
+  | { kind: "loading" }
+  | { kind: "error"; error: unknown }
+  | { kind: "ready"; groups: SubjectReviewGroup[]; unattributed: DetectionEvent[] };
+
+export function subjectReviewView(
+  events: readonly DetectionEvent[],
+  read: AttributionRead,
+): SubjectReviewView {
+  if (read.state === "pending") return { kind: "loading" };
+  if (read.state === "error") return { kind: "error", error: null };
+  return {
+    kind: "ready",
+    groups: groupSubjectReview(events, read.map),
+    unattributed: unattributedExamEvents(events, read.map),
+  };
 }

@@ -29,6 +29,8 @@ import {
 import { useEvents, useEventsSummary, useReviewEvent } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useEventAttribution } from "@/hooks/use-subject-attribution";
+import { useRealtimeAttribution } from "@/hooks/use-realtime-attribution";
+import { eventAttributionDisplay } from "@/lib/attribution-state";
 import { displaySeverity, formatSeconds } from "@/lib/event-presentation";
 import { formatTimestamp } from "@/lib/format";
 import type {
@@ -57,6 +59,8 @@ function EventsPage() {
   const summary = useEventsSummary();
   const review = useReviewEvent();
   useRealtimeEvents();
+  // Late event_subject links and identity changes refresh attribution automatically.
+  useRealtimeAttribution();
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState<EventSeverity | "all">("all");
   const [status, setStatus] = useState<EventStatus | "all">("all");
@@ -225,8 +229,11 @@ function EventsPage() {
                   <td className="px-3 py-2 text-muted-foreground">{event.cameraName}</td>
                   <td className="px-3 py-2">
                     <SubjectAttributionSummary
-                      attributions={attribution.map.get(event.id) ?? []}
-                      examSessionId={event.examSessionId}
+                      display={eventAttributionDisplay(
+                        attribution,
+                        event.examSessionId,
+                        event.id,
+                      )}
                       compact
                     />
                   </td>
@@ -287,7 +294,11 @@ function EventsPage() {
       </PageContainer>
       <EventDetailsDialog
         event={selected}
-        attributions={selected ? (attribution.map.get(selected.id) ?? []) : []}
+        attributionDisplay={eventAttributionDisplay(
+          attribution,
+          selected?.examSessionId ?? null,
+          selected?.id ?? "",
+        )}
         pending={review.isPending}
         onOpenChange={(open) => {
           if (!open) {
