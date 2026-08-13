@@ -219,8 +219,14 @@ class SubjectRuntime:
                     events=events,
                 )
 
-    def sync(self, armed: Iterable[ArmedSession]) -> None:
-        """Reconciles with the database: arms new sessions, disarms finished ones."""
+    def sync(self, armed: Iterable[ArmedSession], hydrate=None) -> None:  # noqa: ANN001
+        """Reconciles with the database: arms new sessions, disarms finished ones.
+
+        ``hydrate(session)`` supplies the persisted identities of a session that
+        is ALREADY active in the database. It must raise when that history
+        cannot be read reliably: the session is then left unarmed rather than
+        armed with an empty registry, which could mint duplicate S-numbers.
+        """
         wanted = {item.exam_session_id: item for item in armed}
         with self._lock:
             current = set(self._sessions)
@@ -228,7 +234,21 @@ class SubjectRuntime:
             self.disarm(session_id)
         for session_id, session in wanted.items():
             if session_id not in current:
-                self.arm(session)
+                restored: tuple = ()
+                highest = 0
+                if hydrate is not None:
+                    try:
+                        restored, highest = hydrate(session)
+                    except Exception as exc:
+                        logger.warning(
+                            "Anonymous subject history unreadable for an active exam "
+                            "session; leaving it unarmed rather than renumbering "
+                            "subjects: %s",
+                            type(exc).__name__,
+                        )
+                        continue
+                self.arm(session, restored=restored, highest_number=highest)
+
             else:
                 with self._lock:
                     state = self._sessions.get(session_id)
