@@ -66,6 +66,18 @@ export const useEvents = () => {
   });
 };
 
+/**
+ * Bounded event list of ONE exam session, filtered in the database. Used by the
+ * subject-centric review queue so no exam is silently truncated.
+ */
+export const useExamSessionEvents = (examSessionId: string, limit = 300) =>
+  useQuery({
+    queryKey: ["events", "exam-session", examSessionId, limit],
+    queryFn: () => eventsService.listForExamSession(examSessionId, limit),
+    enabled: examSessionId !== "",
+  });
+
+
 export const useRecentEvents = (limit = 5) => {
   const { mode, ready } = useScopedMode();
   return useQuery({

@@ -12,6 +12,7 @@ import { Panel } from "@/components/common/Panel";
 import { EventDetailsDialog } from "@/components/events/EventDetailsDialog";
 import { ReviewConfirmDialog, type ReviewDecision } from "@/components/events/ReviewConfirmDialog";
 import { SubjectAttributionSummary } from "@/components/events/SubjectAttributionSummary";
+import { SubjectReviewPanel } from "@/components/events/SubjectReviewPanel";
 import { SubjectIdentityDialog } from "@/components/events/SubjectIdentityDialog";
 import { StatTile } from "@/components/common/StatTile";
 import { PageContainer } from "@/components/layout/PageContainer";
@@ -28,7 +29,7 @@ import {
 import { useEvents, useEventsSummary, useReviewEvent } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useEventAttribution } from "@/hooks/use-subject-attribution";
-import { displayPersonId, displaySeverity, formatSeconds } from "@/lib/event-presentation";
+import { displaySeverity, formatSeconds } from "@/lib/event-presentation";
 import { formatTimestamp } from "@/lib/format";
 import type {
   DetectionEvent,
@@ -60,9 +61,21 @@ function EventsPage() {
   const [severity, setSeverity] = useState<EventSeverity | "all">("all");
   const [status, setStatus] = useState<EventStatus | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"log" | "subjects">("log");
+  // Subject Review can open any event, including exam events outside the
+  // generic latest-events list, so the dialog target is tracked separately.
+  const [externalEvent, setExternalEvent] = useState<DetectionEvent | null>(null);
   // Identity resolution is always an explicit, human-initiated action.
   const [identityTarget, setIdentityTarget] = useState<EventSubjectAttribution | null>(null);
-  const attribution = useEventAttribution(events.data);
+  // One batched attribution read covering the visible log plus any event opened
+  // from Subject Review that is outside the generic latest-events list.
+  const attributionEvents = useMemo(() => {
+    const list = events.data ?? [];
+    if (externalEvent && !list.some((event) => event.id === externalEvent.id))
+      return [...list, externalEvent];
+    return list;
+  }, [events.data, externalEvent]);
+  const attribution = useEventAttribution(attributionEvents);
   // Confirm / Reject always pass through an explicit confirmation step.
   const [pendingDecision, setPendingDecision] = useState<{
     id: string;
@@ -87,7 +100,11 @@ function EventsPage() {
     review.mutate({ id, status: next });
   };
   const selected: DetectionEvent | null =
-    (events.data ?? []).find((event) => event.id === selectedId) ?? null;
+    (events.data ?? []).find((event) => event.id === selectedId) ??
+    (externalEvent
+      ? // Keep the current review status fresh from the events cache when present.
+        ((events.data ?? []).find((event) => event.id === externalEvent.id) ?? externalEvent)
+      : null);
   return (
     <>
       <TopBar title="Event Review" subtitle="AI detections require operator confirmation" />
@@ -103,6 +120,34 @@ function EventsPage() {
           <StatTile label="Confirmed" value={summary.data?.confirmed ?? 0} tone="success" />
           <StatTile label="Rejected" value={summary.data?.rejected ?? 0} />
         </div>
+        <div className="flex gap-1.5">
+          <Button
+            size="sm"
+            variant={view === "log" ? "default" : "outline"}
+            className="h-7 px-3 text-[11px]"
+            onClick={() => setView("log")}
+          >
+            Event Log
+          </Button>
+          <Button
+            size="sm"
+            variant={view === "subjects" ? "default" : "outline"}
+            className="h-7 px-3 text-[11px]"
+            onClick={() => setView("subjects")}
+          >
+            Subject Review
+          </Button>
+        </div>
+        {view === "subjects" && (
+          <SubjectReviewPanel
+            onOpenEvent={(event) => {
+              setExternalEvent(event);
+              setSelectedId(event.id);
+            }}
+            onResolveIdentity={setIdentityTarget}
+          />
+        )}
+        {view === "log" && (
         <Panel
           title="Event log"
           subtitle="Terminology is advisory: suspicious / possible activity, never confirmed cheating."
@@ -154,7 +199,6 @@ function EventsPage() {
                 <th className="label-tech px-3 py-2">Detected</th>
                 <th className="label-tech px-3 py-2">Event</th>
                 <th className="label-tech px-3 py-2">Camera</th>
-                <th className="label-tech px-3 py-2">Track</th>
                 <th className="label-tech px-3 py-2">Subject</th>
                 <th className="label-tech px-3 py-2">Trigger conf.</th>
                 <th className="label-tech px-3 py-2">Association</th>
@@ -179,9 +223,6 @@ function EventsPage() {
                   </td>
                   <td className="px-3 py-2 text-foreground">{eventTypeLabel(event.type)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{event.cameraName}</td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
-                    {displayPersonId(event) ?? "—"}
-                  </td>
                   <td className="px-3 py-2">
                     <SubjectAttributionSummary
                       attributions={attribution.map.get(event.id) ?? []}
@@ -242,12 +283,18 @@ function EventsPage() {
             <p className="py-10 text-center text-xs text-muted-foreground">No events match.</p>
           )}
         </Panel>
+        )}
       </PageContainer>
       <EventDetailsDialog
         event={selected}
         attributions={selected ? (attribution.map.get(selected.id) ?? []) : []}
         pending={review.isPending}
-        onOpenChange={(open) => !open && setSelectedId(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setExternalEvent(null);
+          }
+        }}
         onReview={(input) => review.mutate(input)}
         onResolveIdentity={setIdentityTarget}
       />
