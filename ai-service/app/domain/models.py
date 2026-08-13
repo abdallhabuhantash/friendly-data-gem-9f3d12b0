@@ -9,9 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from .geometry import BBox
+
+if TYPE_CHECKING:  # avoids a runtime import cycle; attribution is a pure layer
+    from .event_attribution import EventSubjectLink
+
 
 CLASS_PERSON = "person"
 CLASS_PHONE = "cell_phone"
