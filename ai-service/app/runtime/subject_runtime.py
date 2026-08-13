@@ -104,19 +104,55 @@ class SubjectRuntime:
 
     # ---------------------------------------------------------------- arming
 
-    def arm(self, session: ArmedSession) -> None:
-        """Arms one session from a clean state; re-arming resets nothing else."""
+    def arm(
+        self,
+        session: ArmedSession,
+        *,
+        restored: Iterable[tuple[Optional[str], RestoredSubject]] = (),
+        highest_number: int = 0,
+    ) -> None:
+        """Arms one session atomically, already holding its restored identities.
+
+        Camera ownership (which makes ``observe()`` reach a registry) is
+        published LAST, inside the same lock that reserved the numbers and
+        restored the subjects. There is therefore no window in which a frame
+        can enter an empty registry for a session that already owns S-numbers.
+        """
         with self._lock:
             if session.exam_session_id in self._sessions:
                 return
             state = _SessionState(session, self._config, self._number_allocator)
+            cameras = tuple(session.camera_ids)
+            grouped: dict[str, list[RestoredSubject]] = {}
+            for camera_id, subject in restored:
+                target = camera_id if camera_id in cameras else (cameras[0] if cameras else None)
+                if target is None:
+                    continue
+                grouped.setdefault(target, []).append(subject)
+            if highest_number:
+                state.reserve(highest_number)
+            events_by_camera = {}
+            for camera_id, items in grouped.items():
+                registry = state.registry_for(camera_id)
+                events_by_camera[camera_id] = (registry, registry.restore(items))
+            # Ownership last: only now can frames reach these registries.
             self._sessions[session.exam_session_id] = state
-            for camera_id in session.camera_ids:
+            for camera_id in cameras:
                 self._camera_sessions[camera_id] = session.exam_session_id
+        for camera_id, (registry, events) in events_by_camera.items():
+            if events:
+                self._publisher.record_events(
+                    exam_session_id=session.exam_session_id,
+                    camera_id=camera_id,
+                    subjects=registry.snapshots(),
+                    events=events,
+                )
         logger.info(
-            "Exam session armed for anonymous subject tracking (%d camera(s))",
+            "Exam session armed for anonymous subject tracking (%d camera(s), %d restored subject(s))",
             len(session.camera_ids),
+            sum(len(items) for items in grouped.values()),
         )
+
 
     def restore_session(
         self,
