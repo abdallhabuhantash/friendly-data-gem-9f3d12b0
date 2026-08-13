@@ -213,8 +213,8 @@ class ExamSubjectRegistry:
     def update(
         self,
         observations: Iterable[PersonObservation],
-
         *,
+
         observed_at: datetime,
     ) -> SubjectFrameResult:
         """Applies one analysed frame and reports exactly what changed."""
