@@ -27,10 +27,8 @@ from ..domain.models import (
     RuleConfig,
     SystemConfig,
 )
-from ..domain.event_attribution import (
-    attribute_event_subjects,
-    evidence_person_tracking_ids,
-)
+from ..domain.event_attribution import attribute_event_subjects
+
 from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import MotionState, RestoredSubject
