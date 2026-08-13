@@ -246,6 +246,10 @@ class ExamSubjectRegistry:
 
         events.extend(self._advance_attached(frame, observed_at))
         events.extend(self._age_detached(frame, observed_at))
+        # Re-evaluated every frame: RECOVERING degrades to COMPROMISED once the
+        # carried motion evidence of the interrupted subjects is too old to
+        # prove anything.
+        self._refresh_continuity(observed_at)
 
         for raw_id in sorted(frame):
             if self._owner_of(raw_id) is not None:
@@ -279,7 +283,9 @@ class ExamSubjectRegistry:
             decisions=tuple(decisions),
             unresolved=self._unresolved_snapshot(),
             labels=self._labels(frame),
+            continuity=self._continuity,
         )
+
 
     def close(self, *, ended_at: datetime) -> tuple[SubjectEvent, ...]:
         """Ends the exam session: the only legitimate way a subject ends."""
