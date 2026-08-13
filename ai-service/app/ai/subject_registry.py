@@ -681,6 +681,11 @@ class ExamSubjectRegistry:
                 "release it before binding another raw track"
             )
         state.active_tracking_id = raw_tracking_id
+        # This subject's continuity is proven again: it no longer blocks new
+        # numbering (and the camera returns to HEALTHY once none is left).
+        self._awaiting_continuity.discard(state.subject_number)
+        self._refresh_continuity(observed_at)
+
         state.last_seen_at = observed_at
         state.motion = (
             initial_motion(bbox, observed_at, trajectory_length=self.config.trajectory_length)
