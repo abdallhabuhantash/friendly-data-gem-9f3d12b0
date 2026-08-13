@@ -59,6 +59,8 @@ function EventsPage() {
   const summary = useEventsSummary();
   const review = useReviewEvent();
   useRealtimeEvents();
+  // Late event_subject links and identity changes refresh attribution automatically.
+  useRealtimeAttribution();
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState<EventSeverity | "all">("all");
   const [status, setStatus] = useState<EventStatus | "all">("all");
