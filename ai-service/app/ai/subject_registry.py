@@ -86,6 +86,12 @@ class ExamSubjectRegistry:
         self._pending: dict[str, PendingTrack] = {}
         self._next_number = 1
         self._last_frame_at: Optional[datetime] = None
+        # Continuity safety: subject numbers of subjects that survived an
+        # interruption and have not been safely re-bound yet. While this set is
+        # non-empty, no raw track may earn a NEW permanent number here.
+        self._awaiting_continuity: set[int] = set()
+        self._continuity = ContinuityMode.HEALTHY
+
 
     # ------------------------------------------------------------------ reads
 
