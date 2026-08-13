@@ -27,6 +27,7 @@ from ..domain.models import (
     RuleConfig,
     SystemConfig,
 )
+from ..domain.event_attribution import attribute_event_subjects
 from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import MotionState, RestoredSubject
@@ -53,6 +54,20 @@ from .stream_hub import StreamHub
 
 
 logger = logging.getLogger(__name__)
+
+
+def _evidence_person_tracking_ids(event) -> tuple[str, ...]:  # noqa: ANN001 - AiEvent
+    """Further person tracks this event's own evidence names, in order."""
+    collected: list[str] = []
+    for item in getattr(event, "evidence", ()) or ():
+        for candidate in (
+            getattr(item, "associated_person_tracking_id", None),
+            getattr(item, "tracking_id", None) if getattr(item, "role", "") == "person" else None,
+        ):
+            key = (candidate or "").strip()
+            if key and key not in collected:
+                collected.append(key)
+    return tuple(collected)
 
 
 def _restored_subjects(rows) -> list[tuple[Optional[str], RestoredSubject]]:  # noqa: ANN001
@@ -727,6 +742,7 @@ class Orchestrator:
                 self.subject_publisher.flush()
             self.publisher.retry_pending()
             self.publisher.retry_pending_evidence()
+            self.publisher.retry_pending_subject_links()
             self.notifications.drain()
             self._stop.wait(1.0)
 
