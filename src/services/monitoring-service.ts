@@ -261,6 +261,20 @@ export const eventsService = {
     fail(error);
     return (data ?? []).map(toEvent);
   },
+  /**
+   * Events of ONE exam session, filtered at the database level so an older or
+   * busy exam is never truncated by the generic global event list.
+   */
+  listForExamSession: async (examSessionId: string, limit = 300): Promise<DetectionEvent[]> => {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .eq("exam_session_id", examSessionId)
+      .order("detected_at", { ascending: false })
+      .limit(limit);
+    fail(error);
+    return (data ?? []).map(toEvent);
+  },
   recent: async (limit: number, mode?: OperationMode): Promise<DetectionEvent[]> => {
     let query = supabase.from("events").select("*");
     if (mode) query = query.eq("source_mode", mode);
@@ -268,6 +282,7 @@ export const eventsService = {
     fail(error);
     return (data ?? []).map(toEvent);
   },
+
   /**
    * Events belonging to the current Asia/Amman calendar day, scoped to the
    * active operation mode. Filtered at the database level.
