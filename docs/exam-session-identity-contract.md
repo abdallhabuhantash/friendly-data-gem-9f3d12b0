@@ -146,3 +146,29 @@ Deliberately **not** implemented here: event identity resolution,
 `event_subjects`, subject thumbnails, Locate Subject, recording/clips, paper
 detector runtime integration, seats, QR check-in, facial recognition, and the
 Start Exam Session runtime action.
+
+## Continuity after interruptions (no duplicate identities)
+
+A stream reset or an AI-service restart destroys raw-tracker continuity. It must
+never destroy identity, and it must never create a second identity for the same
+physical person.
+
+Each camera registry therefore carries a continuity mode:
+
+- `healthy` — normal operation; a qualifying unowned track may earn the next
+  permanent number.
+- `recovering` — an interruption happened and the affected subjects still carry
+  trustworthy motion evidence, so safe short-gap recovery onto the ORIGINAL
+  number is possible.
+- `compromised` — no usable evidence survived to tell a returning subject apart
+  from a genuinely new person.
+
+While the mode is not `healthy`, no raw track may be allocated a NEW number on
+that camera; such tracks are reported as `UNRESOLVED` with the reason
+`continuity_not_established_after_interruption`. Numbering resumes only once
+every interrupted subject has been safely re-bound.
+
+Consequences guaranteed by tests: `S001` never becomes `S002` because tracking
+continuity was lost; when continuity cannot be proven the returning track stays
+`UNRESOLVED` rather than receiving a new permanent identity; already-used
+numbers stay reserved forever.
