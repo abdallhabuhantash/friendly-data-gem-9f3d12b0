@@ -539,10 +539,18 @@ class ExamSubjectRegistry:
         decision: RecoveryDecision,
     ) -> list[SubjectEvent]:
         """Progresses an unowned raw track towards (maybe) earning a subject."""
-        blocked = decision.has_plausible_candidate
-        reason = (
-            "possible_continuation_of_lost_subject" if blocked else "awaiting_qualification"
-        )
+        # Two independent reasons never to allocate a new number:
+        #   1. this track plausibly continues a specific lost subject;
+        #   2. identity continuity of this camera is not established, so ANY
+        #      returning track could be a pre-interruption subject.
+        continuity_hold = self._continuity is not ContinuityMode.HEALTHY
+        blocked = decision.has_plausible_candidate or continuity_hold
+        if decision.has_plausible_candidate:
+            reason = "possible_continuation_of_lost_subject"
+        elif continuity_hold:
+            reason = CONTINUITY_HOLD_REASON
+        else:
+            reason = "awaiting_qualification"
         pending = self._pending.get(raw_tracking_id)
         if pending is None:
             pending = PendingTrack(
@@ -572,10 +580,13 @@ class ExamSubjectRegistry:
                         tracking_id=raw_tracking_id,
                         association=TrackAssociation.UNRESOLVED,
                         association_confidence=decision.score,
-                        reason=decision.reason,
+                        reason=reason
+                        if reason == CONTINUITY_HOLD_REASON
+                        else decision.reason,
                     )
                 )
             return events
+
 
         if not pending.qualifies(self.config):
             return events
