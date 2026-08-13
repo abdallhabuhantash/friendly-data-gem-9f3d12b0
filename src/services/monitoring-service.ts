@@ -130,6 +130,7 @@ const toEvent = (row: EventRow): DetectionEvent => ({
   detectionFrameCount: row.detection_frame_count ?? null,
   evidence: toEvidence(row.evidence),
   sourceMode: (row.source_mode as EventSourceMode) ?? "live",
+  examSessionId: (row.exam_session_id as string) ?? null,
 });
 
 const toRule = (row: RuleRow, cameraIds: string[]): AiRule => ({
