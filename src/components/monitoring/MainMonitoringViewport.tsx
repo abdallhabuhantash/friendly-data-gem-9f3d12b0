@@ -131,7 +131,7 @@ export function MainMonitoringViewport({
         </Button>
       </div>
       {/* HUD zone bottom-left: camera identity + the ONE measured LIVE claim. */}
-      <div className="absolute bottom-5 left-5 z-40 max-w-[calc(100%-2.5rem)] border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm sm:max-w-[60%]">
+      <div className="absolute bottom-5 left-5 z-40 max-w-[calc(100%_-_2.5rem)] border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm sm:max-w-[60%]">
         <div className="flex min-w-0 items-center gap-2 font-mono text-[9px]">
           <span className="shrink-0 text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
           <span className="truncate text-foreground">{camera.name}</span>
