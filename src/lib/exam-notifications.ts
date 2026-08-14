@@ -1,7 +1,7 @@
 /**
  * Frontend-only Exam Notifications configuration and message preview.
  *
- * There is NO delivery in this phase: nothing here talks to WhatsApp, Telegram,
+ * There is NO delivery in this phase: nothing here talks to WhatsApp,
  * SMS, email, a queue, a worker or any server endpoint. The draft below lives in
  * component state only and is never written to the database, so no Supabase
  * types are extended and no migration exists.
