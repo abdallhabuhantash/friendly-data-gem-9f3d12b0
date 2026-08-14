@@ -23,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEventSnapshot } from "@/hooks/use-monitoring";
 import {
   associationLabel,
-  displayPersonId,
   displaySeverity,
   eventSubtitle,
   eventTitle,
@@ -158,7 +157,7 @@ export function EventDetailsDialog({
                 </span>
               </Row>
               <Row label="Association conf.">{formatPercent(event.associationConfidence)}</Row>
-              <Row label="Person track">{displayPersonId(event) ?? "—"}</Row>
+              
               <Row label="Duration">{formatSeconds(event.detectionDurationSeconds)}</Row>
               <Row label="Frames">{event.detectionFrameCount ?? "—"}</Row>
               <Row label="Reviewed by">{event.reviewedBy ?? "—"}</Row>
