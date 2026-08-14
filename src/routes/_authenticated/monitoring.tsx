@@ -20,6 +20,13 @@ import {
   useRecentEvents,
 } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import { useSubjectLocate } from "@/hooks/use-subject-locate";
+import {
+  locateCameraSelection,
+  locateHighlight,
+  locateStatusMessage,
+  parseLocateSearch,
+} from "@/lib/subject-locate";
 import type { Camera } from "@/types";
 
 export const Route = createFileRoute("/_authenticated/monitoring")({
