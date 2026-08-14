@@ -326,16 +326,12 @@ function HealthRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 /**
- * Honest capability list. Telegram state mirrors what the local AI service
- * reports in its heartbeat; no token or chat ID is ever exposed here.
+ * Honest capability list. Only currently real capabilities are shown. External
+ * delivery is not connected in this build, so no external channel is presented
+ * as an active or planned operator path beyond a frontend preview. No provider
+ * credentials or phone numbers are configured here.
  */
 function NotificationReadiness({ soundAlerts }: { soundAlerts: boolean }) {
-  const ai = useAiServiceStatus();
-  const telegramState = ai.data?.telegramReady
-    ? "Ready"
-    : ai.data?.telegramConfigured
-      ? "Configured"
-      : "Not Configured";
   const channels: { name: string; state: string; available: boolean }[] = [
     { name: "In-app alerts", state: "Available", available: true },
     {
@@ -344,17 +340,15 @@ function NotificationReadiness({ soundAlerts }: { soundAlerts: boolean }) {
       available: true,
     },
     {
-      name: "Telegram",
-      state: telegramState,
-      available: Boolean(ai.data?.telegramConfigured),
+      name: "WhatsApp",
+      state: "Not Connected — Frontend Preview Only",
+      available: false,
     },
-    { name: "WhatsApp", state: "Not Configured", available: false },
-    { name: "SMS", state: "Not Configured", available: false },
   ];
   return (
     <Panel
       title="Notification readiness"
-      subtitle="Provider credentials live only in the local AI service configuration."
+      subtitle="External message delivery is not connected in this build. No provider credentials or phone numbers are configured here."
       bodyClassName="space-y-1.5 p-3 lg:col-span-2"
     >
       {channels.map((channel) => (

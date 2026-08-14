@@ -6,6 +6,7 @@ import { Panel } from "@/components/common/Panel";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
+import { ExamNotificationsPanel } from "@/components/exams/ExamNotificationsPanel";
 import { ExamSessionFormDialog } from "@/components/exams/ExamSessionFormDialog";
 import { RosterPanel } from "@/components/exams/RosterPanel";
 import { SubjectsPanel } from "@/components/exams/SubjectsPanel";
@@ -219,6 +220,10 @@ function ExamSessionDetailPage() {
               examSessionId={data.id}
               canEdit={isAdministrator && canEditExamConfiguration(data.status)}
             />
+
+            {/* Frontend-only: configuration + message preview, no delivery. */}
+            <ExamNotificationsPanel session={data} />
+
 
 
             <ExamSessionFormDialog
