@@ -9,6 +9,8 @@ import {
   isCameraStale,
   recordingStateLabel,
 } from "@/lib/health";
+import type { NormalizedBox } from "@/lib/subject-locate";
+import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
 import { DetectionOverlayLayer } from "./DetectionOverlayLayer";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
 import { cn } from "@/lib/utils";
