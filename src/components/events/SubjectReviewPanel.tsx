@@ -116,6 +116,8 @@ function SubjectGroupCard({
             {group.resolution ? "Correct identity" : "Resolve identity"}
           </Button>
         )}
+        {/* Read-only locate of this anonymous subject in live monitoring. */}
+        {identityTarget && <LocateSubjectButton attribution={identityTarget} />}
         <Button
           size="sm"
           variant="ghost"
