@@ -35,6 +35,7 @@ const event = (over: Partial<DetectionEvent> = {}): DetectionEvent =>
     detectedAt: new Date(NOW - 1_000).toISOString(),
     snapshotPath: null,
     sourceMode: "live",
+    ...over,
   }) as unknown as DetectionEvent;
 
 const subject = (n: number, resolved = false): EventSubjectAttribution =>
@@ -203,7 +204,7 @@ describe("live monitoring source contract", () => {
   });
 
   it("O. attribution for the recent event list is batched exactly once", () => {
-    expect(page.match(/useEventAttribution\(/g)?.length).toBe(2); // import + one call
+    expect(page.match(/useEventAttribution\(/g)?.length).toBe(1);
     expect(panel).not.toContain("useEventAttribution");
   });
 
