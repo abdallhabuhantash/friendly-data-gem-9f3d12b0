@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 from datetime import datetime, timezone
 from typing import Optional
