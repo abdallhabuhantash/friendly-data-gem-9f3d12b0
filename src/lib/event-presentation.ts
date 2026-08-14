@@ -47,12 +47,7 @@ export function eventSubtitle(event: DetectionEvent): string | null {
   return null;
 }
 
-/** Person tracking IDs are only shown when the AI reliably associated them. */
-export function displayPersonId(event: DetectionEvent): string | null {
-  if (event.associationStatus === "associated" && event.personTrackingId)
-    return event.personTrackingId;
-  return null;
-}
+
 
 /**
  * Presentation-safety guard. An uncertain person association can never be
