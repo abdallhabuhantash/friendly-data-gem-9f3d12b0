@@ -96,12 +96,24 @@ function MonitoringPage() {
 
   // --- locate one anonymous subject (read-only, measured by the AI service) ---
   const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const locateTarget = useMemo(() => parseLocateSearch(search), [search]);
   const locateQuery = useSubjectLocate(locateTarget);
-  const locateCamera = locateCameraSelection(
-    locateQuery.data,
-    cameras.map((camera) => camera.id),
+  // One decision point: a pending or failed poll clears the highlight here, so a
+  // previously located box can never survive a later failure.
+  const locate = locateView(
+    locateTarget,
+    {
+      data: locateQuery.data,
+      isPending: locateQuery.isPending,
+      isError: locateQuery.isError,
+      dataUpdatedAt: locateQuery.dataUpdatedAt,
+      errorUpdatedAt: locateQuery.errorUpdatedAt,
+    },
+    selected?.id ?? null,
+    cameraIds,
   );
+  const locateCamera = locate.cameraSelection;
   useEffect(() => {
     // A proven observation switches the viewport to the owning camera; a
     // non-located answer never moves the operator anywhere.
@@ -109,18 +121,14 @@ function MonitoringPage() {
     setSelectedId(locateCamera);
     setMode("single");
   }, [locateCamera]);
-  const highlight = locateHighlight(locateQuery.data, locateTarget, selected?.id ?? null);
-  const locateStatus = !locateTarget
-    ? null
-    : locateQuery.isPending
-      ? "Locating subject…"
-      : locateQuery.isError
-        ? "The subject could not be located right now."
-        : locateQuery.data && locateQuery.data.locateState !== "located"
-          ? locateStatusMessage(locateQuery.data.locateState, locateQuery.data.subjectLabel)
-          : locateQuery.data && !highlight
-            ? `${locateQuery.data.subjectLabel} is observed on another camera.`
-            : null;
+  const highlight = locate.highlight;
+  const locateStatus = locate.status;
+  const stopLocating = () => {
+    // Clears the locate intent from the URL only: the subject registry is never
+    // touched, and ordinary live monitoring continues.
+    void navigate({ to: "/monitoring", search: {}, replace: true });
+  };
+
   return (
     <div className="flex h-screen min-h-[640px] w-full flex-col overflow-hidden bg-background">
       <SystemStatusBar
