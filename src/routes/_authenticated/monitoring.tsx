@@ -220,6 +220,8 @@ function MonitoringPage() {
               {...(selectedEvent ? { event: selectedEvent } : {})}
               overlays={overlays}
               onToggleOverlays={() => setOverlays((value) => !value)}
+              locate={highlight}
+              locateStatus={locateStatus}
             />
           ) : (
             <CameraWall cameras={cameras} onSelect={selectCamera} />
