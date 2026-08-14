@@ -2,16 +2,20 @@ import { Cpu, Disc, VideoOff } from "lucide-react";
 import { StatusDot } from "./StatusDot";
 import { LiveStreamPlayer } from "./LiveStreamPlayer";
 import { effectiveCameraStatus, effectiveRecordingState, isCameraStale } from "@/lib/health";
+import type { StreamReadiness } from "@/lib/stream-health";
 import { cn } from "@/lib/utils";
 import type { Camera, NvrStatus } from "@/types";
 
 export function CameraTile({
   camera,
   live = false,
+  readiness,
   nvr,
 }: {
   camera: Camera;
   live?: boolean;
+  /** Measured stream readiness. Without it no live image is ever mounted. */
+  readiness?: StreamReadiness;
   nvr?: NvrStatus;
 }) {
   // Heartbeat-aware status: a camera that stopped reporting is never shown live,
@@ -30,8 +34,9 @@ export function CameraTile({
       )}
     >
       <div className="hud-grid relative flex aspect-video items-center justify-center bg-[oklch(0.14_0.02_255)]">
-        {live ? (
-          <LiveStreamPlayer cameraId={camera.id} offline={offline} />
+        {live && readiness ? (
+          <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
+
         ) : offline ? (
           <div className="flex flex-col items-center gap-1 text-destructive/80">
             <VideoOff className="size-6" />

@@ -10,6 +10,8 @@ import {
   recordingStateLabel,
 } from "@/lib/health";
 import type { NormalizedBox } from "@/lib/subject-locate";
+import type { StreamReadiness } from "@/lib/stream-health";
+
 import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
 import { DetectionOverlayLayer } from "./DetectionOverlayLayer";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
@@ -27,6 +29,7 @@ export function MainMonitoringViewport({
   event,
   overlays,
   onToggleOverlays,
+  readiness,
   locate,
   locateStatus,
 }: {
@@ -35,6 +38,8 @@ export function MainMonitoringViewport({
   event?: DetectionEvent;
   overlays: boolean;
   onToggleOverlays: () => void;
+  /** The ONE shared measured stream-readiness decision for this camera. */
+  readiness: StreamReadiness;
   /** Verified highlight for one located anonymous subject, or null. */
   locate?: { box: NormalizedBox; label: string } | null;
   /** Truthful locate wording shown even when no position can be drawn. */
@@ -54,6 +59,9 @@ export function MainMonitoringViewport({
   const status = effectiveCameraStatus(camera);
   const stale = isCameraStale(camera);
   const offline = status === "offline";
+  // Viewport, HUD and stream player share ONE truth: the stream is only called
+  // live while the AI service currently measures fresh annotated frames.
+  const live = readiness.displayable;
   return (
     <div
       ref={frameRef}
@@ -65,17 +73,11 @@ export function MainMonitoringViewport({
       )}
     >
       <div className="hud-grid absolute inset-0 grid place-items-center">
-        {offline ? (
-          <div className="flex flex-col items-center gap-2 text-destructive">
-            <VideoOff className="size-8" />
-            <span className="font-mono text-[10px] uppercase">Camera offline · No signal</span>
-          </div>
-        ) : (
-          <LiveStreamPlayer cameraId={camera.id} offline={false} onImageSize={onImageSize} />
-        )}
+        <LiveStreamPlayer cameraId={camera.id} readiness={readiness} onImageSize={onImageSize} />
       </div>
-      {/* Only a verified, currently observed subject is ever highlighted. */}
-      {locate && !offline && (
+      {/* Only a verified, currently observed subject is ever highlighted, and
+          only while a fresh stream is actually on screen. */}
+      {locate && live && (
         <SubjectLocateOverlay box={locate.box} label={locate.label} image={imageSize} />
       )}
       {locateStatus && (
@@ -91,26 +93,27 @@ export function MainMonitoringViewport({
       <span className="pointer-events-none absolute right-3 top-3 z-20 size-9 border-r-2 border-t-2 border-primary/70" />
       <span className="pointer-events-none absolute bottom-3 left-3 z-20 size-9 border-b-2 border-l-2 border-primary/70" />
       <span className="pointer-events-none absolute bottom-3 right-3 z-20 size-9 border-b-2 border-r-2 border-primary/70" />
-      <DetectionOverlayLayer detections={detections} visible={overlays && !offline} />
+      <DetectionOverlayLayer detections={detections} visible={overlays && live} />
       <LiveAlertOverlay {...(event ? { event } : {})} camera={camera} />
       <div className="absolute left-5 top-5 z-40 flex items-center gap-2 border border-primary/40 bg-background/82 px-2 py-1.5 backdrop-blur-sm">
         <span
           className={cn(
             "size-1.5 rounded-full",
-            camera.aiEnabled && !offline ? "animate-pulse-dot bg-primary" : "bg-muted-foreground",
+            camera.aiEnabled && live ? "animate-pulse-dot bg-primary" : "bg-muted-foreground",
           )}
         />
         <span className="font-mono text-[9px] text-primary">
-          {offline
-            ? "AI ANALYSIS UNAVAILABLE"
-            : camera.aiEnabled
+          {!camera.aiEnabled
+            ? "AI ANALYSIS OFF"
+            : live
               ? "AI ANALYSIS ENABLED"
-              : "AI ANALYSIS OFF"}
+              : "AI ANALYSIS ENABLED · NO LIVE FRAMES"}
         </span>
         <span className="border-l border-border pl-2 font-mono text-[9px] text-foreground">
           {detections.length} DETECTIONS
         </span>
       </div>
+
       <div className="absolute right-5 top-5 z-40 flex gap-1">
         <Button
           variant="outline"
@@ -235,9 +238,12 @@ function Health({
 export function CameraWall({
   cameras,
   onSelect,
+  readinessFor,
 }: {
   cameras: Camera[];
   onSelect: (camera: Camera) => void;
+  /** One shared page-level health result; each tile decides for itself. */
+  readinessFor: (cameraId: string) => StreamReadiness;
 }) {
   if (cameras.length === 0)
     return (
@@ -252,34 +258,31 @@ export function CameraWall({
         cameras.length === 1 ? "grid-cols-1" : cameras.length <= 4 ? "grid-cols-2" : "grid-cols-3",
       )}
     >
-      {cameras.map((camera) => (
-        <button
-          key={camera.id}
-          type="button"
-          onClick={() => onSelect(camera)}
-          className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
-        >
-          <div className="hud-grid absolute inset-0 grid place-items-center">
-            <LiveStreamPlayer
-              cameraId={camera.id}
-              offline={effectiveCameraStatus(camera) === "offline"}
-            />
-          </div>
-          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
-            <span className="truncate">
-              CH{String(camera.channel).padStart(2, "0")} · {camera.name}
-            </span>
-            <span
-              className={
-                effectiveCameraStatus(camera) === "online" ? "text-success" : "text-destructive"
-              }
-            >
-              {effectiveCameraStatus(camera).toUpperCase()}
-            </span>
-          </div>
-          <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
-        </button>
-      ))}
+      {cameras.map((camera) => {
+        const readiness = readinessFor(camera.id);
+        return (
+          <button
+            key={camera.id}
+            type="button"
+            onClick={() => onSelect(camera)}
+            className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+          >
+            <div className="hud-grid absolute inset-0 grid place-items-center">
+              <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
+            </div>
+            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
+              <span className="truncate">
+                CH{String(camera.channel).padStart(2, "0")} · {camera.name}
+              </span>
+              <span className={readiness.displayable ? "text-success" : "text-destructive"}>
+                {readiness.displayable ? "LIVE" : readiness.label}
+              </span>
+            </div>
+            <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
+          </button>
+        );
+      })}
     </div>
   );
 }
+

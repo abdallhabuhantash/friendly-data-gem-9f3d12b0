@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Grid2X2, Monitor, PanelLeftClose, PanelRightClose, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CameraSidebar } from "@/components/monitoring/CameraSidebar";
 import { LiveEventPanel } from "@/components/monitoring/LiveEventPanel";
 import {
@@ -20,6 +20,9 @@ import {
   useRecentEvents,
 } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import { useStreamHealth } from "@/hooks/use-stream-health";
+import { effectiveCameraStatus } from "@/lib/health";
+import { streamReadiness } from "@/lib/stream-health";
 import { useSubjectLocate } from "@/hooks/use-subject-locate";
 import {
   expectedSubjectLabel,
@@ -65,6 +68,9 @@ function MonitoringPage() {
   const nvr = useNvrStatus();
   const rules = useAiRules();
   useRealtimeEvents({ notify: true });
+  // ONE page-level measured stream-health poll (~2s) shared by the viewport and
+  // every wall tile. There is never one /status poll per camera.
+  const streamHealth = useStreamHealth(true);
   // Everything below is persisted data only. There is no in-memory fallback:
   // when the database has no cameras or events, the UI says so.
   const cameras = useMemo(() => camerasQuery.data ?? [], [camerasQuery.data]);
@@ -89,6 +95,20 @@ function MonitoringPage() {
     setMode("single");
     setShowCameras(false);
   };
+  // The single readiness decision: viewport, HUD and wall all read this.
+  const readinessFor = useCallback(
+    (cameraId: string) => {
+      const camera = cameras.find((entry) => entry.id === cameraId);
+      return streamReadiness({
+        cameraId,
+        cameraOffline: !camera || effectiveCameraStatus(camera) === "offline",
+        health: streamHealth.data,
+        healthFailed: streamHealth.isError,
+        healthPending: streamHealth.isPending,
+      });
+    },
+    [cameras, streamHealth.data, streamHealth.isError, streamHealth.isPending],
+  );
   const cameraIds = useMemo(() => cameras.map((camera) => camera.id), [cameras]);
   const selectedEvent = selected
     ? events.find((event) => event.cameraId === selected.id)
@@ -240,11 +260,12 @@ function MonitoringPage() {
               {...(selectedEvent ? { event: selectedEvent } : {})}
               overlays={overlays}
               onToggleOverlays={() => setOverlays((value) => !value)}
+              readiness={readinessFor(selected.id)}
               locate={highlight}
               locateStatus={locateStatus}
             />
           ) : (
-            <CameraWall cameras={cameras} onSelect={selectCamera} />
+            <CameraWall cameras={cameras} readinessFor={readinessFor} onSelect={selectCamera} />
           )}
           {selected && (
             <CameraHealthStrip

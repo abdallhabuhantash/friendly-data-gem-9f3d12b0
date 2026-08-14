@@ -40,21 +40,39 @@ export const Route = createFileRoute("/api/stream/$cameraId")({
         if (serviceKey) headers["X-Service-Key"] = serviceKey;
 
         try {
-          const upstream = await fetch(`${base}/stream/${params.cameraId}`, { headers });
-          if (!upstream.ok || !upstream.body) {
+          const { bindUpstreamToDownstream } = await import("@/lib/stream-proxy");
+          // The downstream (browser) request signal is tied to the upstream
+          // fetch AND to the response body: when the operator switches camera,
+          // leaves Live Monitoring or the connection closes, the upstream Python
+          // MJPEG request is aborted instead of being left orphaned.
+          const upstream = await fetch(`${base}/stream/${params.cameraId}`, {
+            headers,
+            signal: request.signal,
+          });
+          const decision = bindUpstreamToDownstream(
+            {
+              ok: upstream.ok,
+              body: upstream.body,
+              contentType: upstream.headers.get("content-type"),
+            },
+            request.signal,
+          );
+          if (decision.kind === "unavailable") {
             return new Response("Stream unavailable", { status: 404 });
           }
+          if (decision.kind === "cancelled") {
+            return new Response("Stream cancelled", { status: 499 });
+          }
+          // Progressive streaming only: the MJPEG body is never buffered.
           return new Response(upstream.body, {
             status: 200,
-            headers: {
-              "content-type":
-                upstream.headers.get("content-type") ?? "multipart/x-mixed-replace; boundary=frame",
-              "cache-control": "no-store",
-            },
+            headers: { "content-type": decision.contentType, "cache-control": "no-store" },
           });
         } catch {
           return new Response("Stream unreachable", { status: 404 });
         }
+
+
       },
     },
   },
