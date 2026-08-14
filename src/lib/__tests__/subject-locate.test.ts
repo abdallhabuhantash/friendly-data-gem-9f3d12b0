@@ -236,3 +236,85 @@ describe("object-cover geometry", () => {
     ).toBeNull();
   });
 });
+
+describe("locate view: a failed poll never keeps an old highlight", () => {
+  const success = { data: located(), isPending: false, isError: false, dataUpdatedAt: 1000 };
+
+  it("draws the highlight for a fresh successful read", () => {
+    const view = locateView(TARGET, success, "cam-1", ["cam-1"]);
+    expect(view.highlight).toEqual({ box: located().bbox, label: "S007" });
+    expect(view.cameraSelection).toBe("cam-1");
+    expect(view.status).toBeNull();
+    expect(view.polling).toBe(true);
+  });
+
+  it("clears the highlight when a later poll fails, even though data is cached", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, isError: true, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.cameraSelection).toBeNull();
+    expect(view.status).toContain("could not be located");
+  });
+
+  it("clears the highlight when the failure is newer than the success", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, isError: false, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+  });
+
+  it("keeps the highlight when the last success is newer than an older failure", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, dataUpdatedAt: 3000, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).not.toBeNull();
+  });
+
+  it("clears the highlight while a new target is still pending", () => {
+    const view = locateView(
+      { ...TARGET, subjectNumber: 9 },
+      { data: located(), isPending: true, isError: false },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.status).toBe("Locating S009…");
+  });
+
+  it("clears the highlight for an unavailable answer", () => {
+    const view = locateView(
+      TARGET,
+      { data: located({ locateState: "unavailable", bbox: null }), isPending: false, isError: false },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.status).toContain("S007");
+  });
+
+  it("says the subject is on another camera instead of drawing it here", () => {
+    const view = locateView(TARGET, success, "cam-2", ["cam-1", "cam-2"]);
+    expect(view.highlight).toBeNull();
+    expect(view.status).toContain("another camera");
+  });
+
+  it("stops polling and shows nothing once the locate target is cleared", () => {
+    const view = locateView(null, success, "cam-1", ["cam-1"]);
+    expect(view).toEqual({
+      highlight: null,
+      cameraSelection: null,
+      status: null,
+      polling: false,
+    });
+  });
+});
