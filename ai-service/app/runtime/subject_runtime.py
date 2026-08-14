@@ -32,6 +32,11 @@ from ..ai.subject_registry import ExamSubjectRegistry
 logger = logging.getLogger(__name__)
 
 
+class CameraOwnershipConflict(ValueError):
+    """One physical camera cannot serve two armed exam sessions at once."""
+
+
+
 @dataclass(frozen=True, slots=True)
 class ArmedSession:
     """An exam session that is armed for monitoring right now."""
@@ -104,6 +109,22 @@ class SubjectRuntime:
 
     # ---------------------------------------------------------------- arming
 
+    def owner_of(self, camera_id: str) -> Optional[str]:
+        """Which armed exam session currently owns a camera, if any."""
+        with self._lock:
+            return self._camera_sessions.get(camera_id)
+
+    def conflicting_cameras(
+        self, exam_session_id: str, camera_ids: Iterable[str]
+    ) -> tuple[str, ...]:
+        """Cameras already owned by a DIFFERENT armed exam session."""
+        with self._lock:
+            return tuple(
+                camera_id
+                for camera_id in camera_ids
+                if self._camera_sessions.get(camera_id) not in (None, exam_session_id)
+            )
+
     def arm(
         self,
         session: ArmedSession,
@@ -117,12 +138,27 @@ class SubjectRuntime:
         published LAST, inside the same lock that reserved the numbers and
         restored the subjects. There is therefore no window in which a frame
         can enter an empty registry for a session that already owns S-numbers.
+
+        A camera owned by another armed session is never stolen: the whole
+        arming attempt is rejected with ``CameraOwnershipConflict`` and no
+        runtime state changes.
         """
         with self._lock:
             if session.exam_session_id in self._sessions:
                 return
-            state = _SessionState(session, self._config, self._number_allocator)
             cameras = tuple(session.camera_ids)
+            stolen = tuple(
+                camera_id
+                for camera_id in cameras
+                if self._camera_sessions.get(camera_id)
+                not in (None, session.exam_session_id)
+            )
+            if stolen:
+                raise CameraOwnershipConflict(
+                    "camera(s) %s are already monitored by another active exam session"
+                    % ", ".join(stolen)
+                )
+            state = _SessionState(session, self._config, self._number_allocator)
             grouped: dict[str, list[RestoredSubject]] = {}
             for camera_id, subject in restored:
                 target = camera_id if camera_id in cameras else (cameras[0] if cameras else None)
@@ -139,6 +175,7 @@ class SubjectRuntime:
             self._sessions[session.exam_session_id] = state
             for camera_id in cameras:
                 self._camera_sessions[camera_id] = session.exam_session_id
+
         for camera_id, (registry, events) in events_by_camera.items():
             if events:
                 self._publisher.record_events(
@@ -195,6 +232,55 @@ class SubjectRuntime:
                 )
 
 
+    def suspend(self, exam_session_id: str) -> bool:
+        """Phase one of End: stops new observations WITHOUT closing anything.
+
+        Camera ownership is withdrawn so ``observe()`` returns None immediately,
+        but the registries stay intact so a failed persistence step can restore
+        the still-ACTIVE session exactly as it was (no duplicate subjects, no
+        premature closure).
+        """
+        with self._lock:
+            if exam_session_id not in self._sessions:
+                return False
+            for camera_id in [
+                camera_id
+                for camera_id, session_id in self._camera_sessions.items()
+                if session_id == exam_session_id
+            ]:
+                del self._camera_sessions[camera_id]
+            return True
+
+    def resume(self, exam_session_id: str) -> bool:
+        """Rollback of ``suspend()``: re-publishes the session's cameras.
+
+        Only cameras that are still unowned are re-adopted, so a rollback can
+        never steal a camera another session legitimately owns meanwhile.
+        """
+        with self._lock:
+            state = self._sessions.get(exam_session_id)
+            if state is None:
+                return False
+            for camera_id in state.session.camera_ids:
+                if self._camera_sessions.get(camera_id) in (None, exam_session_id):
+                    self._camera_sessions[camera_id] = exam_session_id
+            return True
+
+    def abort_arm(self, exam_session_id: str) -> None:
+        """Discards a session armed moments ago without closing its subjects.
+
+        Used when a lifecycle transition failed: nothing was truthfully
+        observed yet, so no ENDED subject events must be published.
+        """
+        with self._lock:
+            self._sessions.pop(exam_session_id, None)
+            for camera_id in [
+                camera_id
+                for camera_id, session_id in self._camera_sessions.items()
+                if session_id == exam_session_id
+            ]:
+                del self._camera_sessions[camera_id]
+
     def disarm(self, exam_session_id: str, *, ended_at: Optional[datetime] = None) -> None:
         """Closes every subject of the session truthfully, then forgets it."""
         moment = ended_at or datetime.now(timezone.utc)
@@ -219,17 +305,33 @@ class SubjectRuntime:
                     events=events,
                 )
 
-    def sync(self, armed: Iterable[ArmedSession], hydrate=None) -> None:  # noqa: ANN001
+    def sync(
+        self,
+        armed: Iterable[ArmedSession],
+        hydrate=None,  # noqa: ANN001
+        *,
+        skip: Iterable[str] = (),
+    ) -> None:
         """Reconciles with the database: arms new sessions, disarms finished ones.
 
         ``hydrate(session)`` supplies the persisted identities of a session that
         is ALREADY active in the database. It must raise when that history
         cannot be read reliably: the session is then left unarmed rather than
         armed with an empty registry, which could mint duplicate S-numbers.
+
+        ``skip`` names sessions in the middle of an explicit Start/End
+        transition: reconciliation must never disarm or re-arm those halfway.
+        A camera conflict is reported and leaves the offending session unarmed;
+        the loop always stays alive.
         """
-        wanted = {item.exam_session_id: item for item in armed}
+        excluded = set(skip)
+        wanted = {
+            item.exam_session_id: item
+            for item in armed
+            if item.exam_session_id not in excluded
+        }
         with self._lock:
-            current = set(self._sessions)
+            current = set(self._sessions) - excluded
         for session_id in current - set(wanted):
             self.disarm(session_id)
         for session_id, session in wanted.items():
@@ -247,14 +349,35 @@ class SubjectRuntime:
                             type(exc).__name__,
                         )
                         continue
-                self.arm(session, restored=restored, highest_number=highest)
+                try:
+                    self.arm(session, restored=restored, highest_number=highest)
+                except CameraOwnershipConflict as exc:
+                    logger.error(
+                        "Conflicting camera assignment between active exam sessions; "
+                        "leaving exam session %s unarmed instead of taking over a "
+                        "camera: %s",
+                        session_id,
+                        exc,
+                    )
+                    continue
 
             else:
                 with self._lock:
                     state = self._sessions.get(session_id)
                     if state is not None:
                         for camera_id in session.camera_ids:
-                            self._camera_sessions[camera_id] = session_id
+                            owner = self._camera_sessions.get(camera_id)
+                            if owner in (None, session_id):
+                                self._camera_sessions[camera_id] = session_id
+                            else:
+                                logger.error(
+                                    "Camera %s is monitored by exam session %s; not "
+                                    "reassigning it to %s",
+                                    camera_id,
+                                    owner,
+                                    session_id,
+                                )
+
 
     def reserve_numbers(self, exam_session_id: str, highest_number: int) -> None:
         """Never re-issue a number a previous run of this session used."""

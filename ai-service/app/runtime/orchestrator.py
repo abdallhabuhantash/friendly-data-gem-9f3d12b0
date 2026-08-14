@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from contextlib import contextmanager
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -50,7 +52,7 @@ from ..notifications.telegram import TelegramProvider
 from .frame_gate import FrameGate
 from .health_reporter import HealthReporter, measure_gpu_load
 from .pose_runtime import PoseRuntime
-from .subject_runtime import ArmedSession, SubjectRuntime
+from .subject_runtime import ArmedSession, CameraOwnershipConflict, SubjectRuntime
 from .stream_hub import StreamHub
 
 
@@ -198,6 +200,13 @@ class Orchestrator:
         self._control: Optional[threading.Thread] = None
         self._inference_fps: dict[str, float] = {}
         self._frame_gate = FrameGate()
+        # Explicit Start/End versus automatic reconciliation: the lock serialises
+        # the two, the set names the session currently transitioning so a sync
+        # pass reached re-entrantly can neither disarm nor re-arm it halfway.
+        # Camera inference never takes this lock.
+        self._lifecycle_lock = threading.RLock()
+        self._lifecycle_transitions: set[str] = set()
+
         # Stream-incarnation accounting: the generation each camera's inference
         # loop has initialised, plus per-incarnation counters.
         self._seen_generation: dict[str, int] = {}
@@ -777,7 +786,9 @@ class Orchestrator:
 
         A session discovered here is already ACTIVE in the database, so it may
         already own persisted S-numbers. It is armed through the hydrated path
-        only; a failed history read leaves subject identity unarmed.
+        only; a failed history read leaves subject identity unarmed. Sessions in
+        the middle of an explicit Start/End are skipped entirely, so
+        reconciliation can never disarm or re-arm a half-finished transition.
         """
         if self.subjects is None:
             return
@@ -786,33 +797,40 @@ class Orchestrator:
         except Exception as exc:
             logger.warning("Armed exam session refresh failed: %s", type(exc).__name__)
             return
-        self.subjects.sync(
-            (
-                ArmedSession(
-                    exam_session_id=str(row["id"]),
-                    camera_ids=tuple(row.get("camera_ids") or ()),
-                )
-                for row in rows
-                if row.get("id")
-            ),
-            hydrate=lambda session: self._hydrate_session(session.exam_session_id),
-        )
-
-
-    def arm_exam_session(self, exam_session_id: str) -> dict:
-        """Arms monitoring for one configured exam session, from a clean state.
-
-        Paper distribution happens BEFORE arming: nothing is monitored until an
-        operator performs this action (identity contract §11).
-        """
-        if self.subjects is None:
-            raise RuntimeError(
-                "anonymous subject tracking is not configured on this AI service"
+        with self._lifecycle_lock:
+            skip = frozenset(self._lifecycle_transitions)
+            self.subjects.sync(
+                (
+                    ArmedSession(
+                        exam_session_id=str(row["id"]),
+                        camera_ids=tuple(row.get("camera_ids") or ()),
+                    )
+                    for row in rows
+                    if row.get("id")
+                ),
+                hydrate=lambda session: self._hydrate_session(session.exam_session_id),
+                skip=skip,
             )
+
+    # --- explicit lifecycle transitions -----------------------------------
+    @contextmanager
+    def _lifecycle_transition(self, exam_session_id: str):
+        """Serialises one explicit transition against automatic reconciliation."""
+        with self._lifecycle_lock:
+            self._lifecycle_transitions.add(exam_session_id)
+            try:
+                yield
+            finally:
+                self._lifecycle_transitions.discard(exam_session_id)
+
+    def _preflight_arm(self, exam_session_id: str) -> tuple[dict, str, tuple[str, ...]]:
+        """Everything checkable BEFORE any subject ownership is exposed."""
         session = self.repository.exam_session(exam_session_id)
         if session is None:
             raise LookupError("exam session not found")
         status = str(session.get("status") or "")
+        if status == "ended":
+            raise ValueError("this exam session has ended; ENDED is terminal")
         if status not in ("ready", "active"):
             raise ValueError(f"exam session is '{status}', not configured (ready)")
         camera_ids = tuple(session.get("camera_ids") or ())
@@ -822,12 +840,19 @@ class Orchestrator:
         running = tuple(camera_id for camera_id in camera_ids if camera_id in active)
         if not running:
             raise ValueError("no assigned camera is currently being processed")
-        started_at = datetime.now(timezone.utc)
-        # One canonical hydrated arming path: restored identities and reserved
-        # numbers are handed to arm() atomically, so a frame can never reach an
-        # empty registry for a session that already owns S-numbers.
+        if self.subjects is not None:
+            conflicts = self.subjects.conflicting_cameras(exam_session_id, running)
+            if conflicts:
+                raise CameraOwnershipConflict(
+                    "camera(s) %s are already monitored by another active exam "
+                    "session; that session keeps them" % ", ".join(conflicts)
+                )
+        return session, status, running
+
+    def _hydrate_for_arm(self, exam_session_id: str, status: str) -> tuple[tuple, int]:
+        """Hydrated identities for arming; fail-closed for an ACTIVE session."""
         try:
-            restored, highest = self._hydrate_session(exam_session_id)
+            return self._hydrate_session(exam_session_id)
         except Exception as exc:
             if status == "active":
                 # Fail closed: arming empty could mint duplicate identities.
@@ -839,45 +864,153 @@ class Orchestrator:
                     "existing anonymous subject history could not be read; "
                     "refusing to arm this active exam session with an empty registry"
                 ) from exc
-            restored, highest = (), 0
             logger.warning("Existing subject rows could not be read: %s", type(exc).__name__)
-        self.subjects.arm(
-            ArmedSession(
-                exam_session_id=exam_session_id,
-                camera_ids=running,
-                started_at=started_at,
-            ),
-            restored=restored,
-            highest_number=highest,
-        )
+            return (), 0
 
+    def arm_exam_session(self, exam_session_id: str) -> dict:
+        """Start: READY → ACTIVE, or an idempotent no-op for an ACTIVE session.
 
-        if status != "active":
-            self.repository.set_exam_session_runtime(
-                exam_session_id, status="active", started_at=started_at
+        Paper distribution happens BEFORE arming: nothing is monitored until an
+        operator performs this action (identity contract §11).
+
+        Ordering — preflight → hydrate → compare-and-set READY→ACTIVE → atomic
+        arm. Nothing is exposed to camera frames before the persisted ACTIVE
+        transition succeeded, and a failed arm rolls the row back to READY.
+        """
+        if self.subjects is None:
+            raise RuntimeError(
+                "anonymous subject tracking is not configured on this AI service"
             )
-        return {
-            "armed": True,
-            "exam_session_id": exam_session_id,
-            "cameras": list(running),
-            "started_at": started_at.isoformat(),
-        }
+        with self._lifecycle_transition(exam_session_id):
+            session, status, running = self._preflight_arm(exam_session_id)
+
+            if status == "active":
+                # Retry of a Start whose HTTP response was lost: never a second
+                # logical start. Numbering, subjects and started_at are kept.
+                started_at = _parse_moment(session.get("started_at"))
+                if not self.subjects.is_armed(exam_session_id):
+                    restored, highest = self._hydrate_for_arm(exam_session_id, status)
+                    self.subjects.arm(
+                        ArmedSession(
+                            exam_session_id=exam_session_id,
+                            camera_ids=running,
+                            started_at=started_at,
+                        ),
+                        restored=restored,
+                        highest_number=highest,
+                    )
+                return {
+                    "armed": True,
+                    "exam_session_id": exam_session_id,
+                    "cameras": list(running),
+                    "started_at": started_at.isoformat() if started_at else None,
+                }
+
+            started_at = datetime.now(timezone.utc)
+            restored, highest = self._hydrate_for_arm(exam_session_id, status)
+            transitioned = self.repository.transition_exam_session(
+                exam_session_id,
+                expected_status="ready",
+                status="active",
+                started_at=started_at,
+            )
+            if not transitioned:
+                raise RuntimeError(
+                    "the exam session was not started: its state changed concurrently "
+                    "and is no longer 'ready'"
+                )
+            try:
+                self.subjects.arm(
+                    ArmedSession(
+                        exam_session_id=exam_session_id,
+                        camera_ids=running,
+                        started_at=started_at,
+                    ),
+                    restored=restored,
+                    highest_number=highest,
+                )
+            except Exception:
+                # No subject was truthfully observed: discard runtime state and
+                # give the row its previous READY state back.
+                self.subjects.abort_arm(exam_session_id)
+                try:
+                    self.repository.transition_exam_session(
+                        exam_session_id, expected_status="active", status="ready"
+                    )
+                except Exception as revert_error:  # pragma: no cover - defensive
+                    logger.error(
+                        "Exam session could not be reverted to ready: %s",
+                        type(revert_error).__name__,
+                    )
+                raise
+            return {
+                "armed": True,
+                "exam_session_id": exam_session_id,
+                "cameras": list(running),
+                "started_at": started_at.isoformat(),
+            }
 
     def end_exam_session(self, exam_session_id: str) -> dict:
-        """Disarms monitoring and closes every anonymous subject truthfully."""
-        ended_at = datetime.now(timezone.utc)
-        if self.subjects is not None:
-            self.subjects.disarm(exam_session_id, ended_at=ended_at)
-            self.subject_publisher.flush()
-            self.subject_publisher.forget_session(exam_session_id)
-        self.repository.set_exam_session_runtime(
-            exam_session_id, status="ended", ended_at=ended_at
-        )
-        return {
-            "armed": False,
-            "exam_session_id": exam_session_id,
-            "ended_at": ended_at.isoformat(),
-        }
+        """End: ACTIVE → ENDED, with a real stop boundary and a safe rollback.
+
+        Ordering — suspend (no new subjects/tracks/attributions) → compare-and-set
+        ACTIVE→ENDED → close subjects once, flush, forget. If persistence fails
+        the previous ACTIVE ownership is restored and nothing is closed, so a
+        failed End can never permanently close a running exam session.
+        """
+        with self._lifecycle_transition(exam_session_id):
+            session = self.repository.exam_session(exam_session_id)
+            if session is None:
+                raise LookupError("exam session not found")
+            status = str(session.get("status") or "")
+
+            if status == "ended":
+                # Retry of an End whose HTTP response was lost: terminal state,
+                # persisted ended_at preserved, identities untouched.
+                ended_at = _parse_moment(session.get("ended_at"))
+                if self.subjects is not None and self.subjects.is_armed(exam_session_id):
+                    self.subjects.disarm(exam_session_id, ended_at=ended_at)
+                    self.subject_publisher.flush()
+                    self.subject_publisher.forget_session(exam_session_id)
+                return {
+                    "armed": False,
+                    "exam_session_id": exam_session_id,
+                    "ended_at": ended_at.isoformat() if ended_at else None,
+                }
+            if status != "active":
+                raise ValueError(
+                    f"exam session is '{status}' and was never started, so it cannot be ended"
+                )
+
+            ended_at = datetime.now(timezone.utc)
+            suspended = (
+                self.subjects.suspend(exam_session_id) if self.subjects is not None else False
+            )
+            transitioned = False
+            try:
+                transitioned = self.repository.transition_exam_session(
+                    exam_session_id,
+                    expected_status="active",
+                    status="ended",
+                    ended_at=ended_at,
+                )
+            finally:
+                if not transitioned and suspended and self.subjects is not None:
+                    # The exam is still ACTIVE: give it its cameras back.
+                    self.subjects.resume(exam_session_id)
+            if not transitioned:
+                raise RuntimeError(
+                    "the exam session was not ended: monitoring is still active"
+                )
+            if self.subjects is not None:
+                self.subjects.disarm(exam_session_id, ended_at=ended_at)
+                self.subject_publisher.flush()
+                self.subject_publisher.forget_session(exam_session_id)
+            return {
+                "armed": False,
+                "exam_session_id": exam_session_id,
+                "ended_at": ended_at.isoformat(),
+            }
 
     def subject_status(self) -> dict:
         """Measured anonymous-subject diagnostics only."""
@@ -929,6 +1062,7 @@ class Orchestrator:
                 }
             },
         }
+
 
 
 __all__ = ["Orchestrator", "AssociationStatus"]

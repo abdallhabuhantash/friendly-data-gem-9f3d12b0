@@ -18,8 +18,23 @@ import {
   useStartExamSession,
   useUpdateExamSession,
 } from "@/hooks/use-exams";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  canEditExamConfiguration,
+  examLifecycleDescription,
+} from "@/lib/exam-runtime-contract";
 import { EXAM_STATUS_LABELS } from "@/lib/exam-validation";
 import type { ExamSession, ExamSessionInput } from "@/types";
+
 
 export const Route = createFileRoute("/_authenticated/exam-sessions/$sessionId")({
   head: () => ({
@@ -93,22 +108,24 @@ function ExamSessionDetailPage() {
           <>
             <Panel
               title="Overview"
-              subtitle={
-                data.status === "active"
-                  ? "Monitoring is armed: anonymous subjects are being tracked."
-                  : "Configured information only. Monitoring has not been started."
-              }
+              subtitle={examLifecycleDescription(data.status)}
               actions={
                 isAdministrator ? (
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                      <Pencil className="mr-1 size-3.5" /> Edit
-                    </Button>
+                    {canEditExamConfiguration(data.status) && (
+                      <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                        <Pencil className="mr-1 size-3.5" /> Edit
+                      </Button>
+                    )}
                     {data.status === "ready" && (
-                      <Button
-                        size="sm"
-                        disabled={start.isPending}
-                        onClick={async () => {
+                      <ConfirmAction
+                        label="Start exam session"
+                        icon={<Play className="mr-1 size-3.5" />}
+                        title="Start monitoring for this exam session?"
+                        body="Monitoring will be armed on the assigned cameras and anonymous subjects (S001, S002, …) will start being created. Nothing is reported as started unless the AI service confirms it."
+                        confirmLabel="Start monitoring"
+                        pending={start.isPending}
+                        onConfirm={async () => {
                           try {
                             await start.mutateAsync();
                             toast.success("Monitoring started for this exam session");
@@ -120,16 +137,18 @@ function ExamSessionDetailPage() {
                             );
                           }
                         }}
-                      >
-                        <Play className="mr-1 size-3.5" /> Start exam session
-                      </Button>
+                      />
                     )}
                     {data.status === "active" && (
-                      <Button
-                        size="sm"
+                      <ConfirmAction
+                        label="End exam session"
+                        icon={<Square className="mr-1 size-3.5" />}
                         variant="destructive"
-                        disabled={end.isPending}
-                        onClick={async () => {
+                        title="End this exam session?"
+                        body="Monitoring stops and no further anonymous subjects or attributions are created for this session. Existing subject and event history is preserved. This cannot be undone — an ended session cannot be started again."
+                        confirmLabel="End session"
+                        pending={end.isPending}
+                        onConfirm={async () => {
                           try {
                             await end.mutateAsync();
                             toast.success("Exam session ended");
@@ -141,9 +160,7 @@ function ExamSessionDetailPage() {
                             );
                           }
                         }}
-                      >
-                        <Square className="mr-1 size-3.5" /> End exam session
-                      </Button>
+                      />
                     )}
                     {data.status === "draft" && (
                       <Button
@@ -193,6 +210,7 @@ function ExamSessionDetailPage() {
             >
               <Overview session={data} cameras={cameras.data ?? []} />
             </Panel>
+
 
             <SubjectsPanel session={data} />
 
@@ -250,12 +268,25 @@ function Overview({
       />
       <Fact
         label="Started at"
-        value={session.startedAt ? new Date(session.startedAt).toLocaleString() : "Not started"}
+        value={
+          session.startedAt
+            ? new Date(session.startedAt).toLocaleString()
+            : session.status === "ended"
+              ? "Not recorded"
+              : "Not started"
+        }
       />
       <Fact
         label="Ended at"
-        value={session.endedAt ? new Date(session.endedAt).toLocaleString() : "—"}
+        value={
+          session.endedAt
+            ? new Date(session.endedAt).toLocaleString()
+            : session.status === "ended"
+              ? "Not recorded"
+              : "—"
+        }
       />
+
       <p className="sm:col-span-2 lg:col-span-3 text-[11px] text-muted-foreground">
         Subject identity (S001, S002, …) and monitoring arming are not part of this configuration
         step. Invigilator names are metadata; the system performs no facial or biometric
@@ -271,5 +302,58 @@ function Fact({ label, value }: { label: string; value: string }) {
       <p className="label-tech">{label}</p>
       <p className="mt-0.5 text-[13px] text-foreground">{value}</p>
     </div>
+  );
+}
+
+/**
+ * Start and End are irreversible operational boundaries, so both go through an
+ * explicit confirmation that states what will and will not happen.
+ */
+function ConfirmAction({
+  label,
+  icon,
+  title,
+  body,
+  confirmLabel,
+  pending,
+  onConfirm,
+  variant = "default",
+}: {
+  label: string;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  pending: boolean;
+  onConfirm: () => Promise<void>;
+  variant?: "default" | "destructive";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => (pending ? null : setOpen(next))}>
+      <Button size="sm" variant={variant} disabled={pending} onClick={() => setOpen(true)}>
+        {icon}
+        {pending ? "Working…" : label}
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{body}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={async (event) => {
+              event.preventDefault();
+              await onConfirm();
+              setOpen(false);
+            }}
+          >
+            {pending ? "Working…" : confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
