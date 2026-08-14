@@ -214,7 +214,12 @@ function ExamSessionDetailPage() {
 
             <SubjectsPanel session={data} />
 
-            <RosterPanel examSessionId={data.id} canEdit={isAdministrator} />
+            {/* Roster editing follows exam configuration: read-only once ACTIVE/ENDED. */}
+            <RosterPanel
+              examSessionId={data.id}
+              canEdit={isAdministrator && canEditExamConfiguration(data.status)}
+            />
+
 
             <ExamSessionFormDialog
               open={editing}
