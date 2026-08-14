@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CrosshairOff, Grid2X2, Monitor, PanelLeftClose, PanelRightClose } from "lucide-react";
+import { Grid2X2, Monitor, PanelLeftClose, PanelRightClose, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CameraSidebar } from "@/components/monitoring/CameraSidebar";
 import { LiveEventPanel } from "@/components/monitoring/LiveEventPanel";
@@ -184,7 +184,7 @@ function MonitoringPage() {
                   className="h-7 px-2 font-mono text-[9px]"
                   onClick={stopLocating}
                 >
-                  <CrosshairOff className="size-3" /> STOP LOCATING{" "}
+                  <X className="size-3" /> STOP LOCATING{" "}
                   {expectedSubjectLabel(locateTarget.subjectNumber)}
                 </Button>
               )}
