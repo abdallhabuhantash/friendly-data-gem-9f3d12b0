@@ -45,8 +45,9 @@ function CameraListItem({
           </div>
           <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{camera.location}</p>
           <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] uppercase text-muted-foreground">
+            {/* aiEnabled is configuration, not proof of current live inference. */}
             <span className={camera.aiEnabled ? "text-primary" : ""}>
-              AI {camera.aiEnabled ? "active" : "off"}
+              {camera.aiEnabled ? "AI ENABLED" : "AI OFF"}
             </span>
             <span className={recordingState === "active" ? "text-destructive" : ""}>
               {recordingState === "active"
@@ -56,6 +57,7 @@ function CameraListItem({
                   : "rec unknown"}
             </span>
           </div>
+
         </div>
         {camera.isDemo && (
           <span className="border border-warning/40 bg-warning/8 px-1 py-0.5 font-mono text-[8px] text-warning">
