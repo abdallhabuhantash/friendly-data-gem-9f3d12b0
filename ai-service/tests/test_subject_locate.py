@@ -198,7 +198,7 @@ def test_runtime_locate_reports_a_live_subject_and_changes_nothing():
     for index in range(3):
         subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
     before = subjects.snapshots("session-1")
-    located = subjects.locate("session-1", 1)
+    located = subjects.locate("session-1", 1, now=at(0.5))
     assert located.locate_state is LocateState.LOCATED
     assert located.camera_id == "cam-1"
     assert subjects.snapshots("session-1") == before
@@ -214,3 +214,113 @@ def test_runtime_locate_never_allocates_a_number():
     subjects.arm(ArmedSession("session-1", ("cam-1",)))
     assert subjects.locate("session-1", 4).locate_state is LocateState.NOT_FOUND
     assert subjects.snapshots("session-1") == ()
+
+
+# --- freshness + camera connectivity (fail closed) ---------------------------
+
+
+def test_stale_active_confirmed_observation_is_never_located():
+    """A stalled stream stops updating the registry; ACTIVE is not a live fact."""
+    stale = snapshot()  # last_seen_at = T0 + 2s, ACTIVE + CONFIRMED, real bbox
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", stale)],
+        now=at(2.0 + CONFIG.lost_after_seconds + 0.01),
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+    )
+    assert result.locate_state is LocateState.UNAVAILABLE
+    assert result.bbox is None
+    # The registry view itself is untouched: locate is read-only.
+    assert stale.lifecycle is SubjectLifecycle.ACTIVE
+    assert stale.motion is not None and stale.motion.last_bbox == BOX
+
+
+def test_fresh_active_confirmed_observation_is_still_located():
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", snapshot())],
+        now=at(2.0 + CONFIG.lost_after_seconds - 0.01),
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+    )
+    assert result.locate_state is LocateState.LOCATED
+    assert result.bbox == BOX
+
+
+def test_disconnected_owning_camera_is_never_located():
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", snapshot())],
+        now=at(2.1),
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+        camera_connectivity={"cam-1": False},
+    )
+    assert result.locate_state is LocateState.UNAVAILABLE
+    assert result.bbox is None
+
+
+def test_camera_missing_from_a_known_fleet_counts_as_disconnected():
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", snapshot())],
+        now=at(2.1),
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+        camera_connectivity={"cam-2": True},
+    )
+    assert result.locate_state is LocateState.UNAVAILABLE
+    assert result.bbox is None
+
+
+def test_connected_camera_still_locates():
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", snapshot())],
+        now=at(2.1),
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+        camera_connectivity={"cam-1": True},
+    )
+    assert result.locate_state is LocateState.LOCATED
+
+
+def test_runtime_locate_uses_the_existing_lost_after_boundary():
+    subjects = runtime()
+    subjects.arm(ArmedSession("session-1", ("cam-1",)))
+    for index in range(3):
+        subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
+    fresh = subjects.locate("session-1", 1, now=at(0.4 + CONFIG.lost_after_seconds))
+    assert fresh.locate_state is LocateState.LOCATED
+    # The wall clock alone (no new frames) must demote the answer.
+    stale = subjects.locate("session-1", 1, now=at(60.0))
+    assert stale.locate_state is LocateState.UNAVAILABLE
+    assert stale.bbox is None
+    assert stale.lifecycle is SubjectLifecycle.ACTIVE  # nothing was mutated
+
+
+def test_runtime_locate_respects_camera_connectivity():
+    subjects = runtime()
+    subjects.arm(ArmedSession("session-1", ("cam-1",)))
+    for index in range(3):
+        subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
+    down = subjects.locate(
+        "session-1", 1, now=at(0.5), camera_connectivity={"cam-1": False}
+    )
+    assert down.locate_state is LocateState.UNAVAILABLE
+    assert down.bbox is None
+
+
+def test_runtime_locate_without_an_explicit_clock_uses_real_time():
+    """No clock passed => the ancient fixture observation cannot be located."""
+    subjects = runtime()
+    subjects.arm(ArmedSession("session-1", ("cam-1",)))
+    for index in range(3):
+        subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
+    assert subjects.locate("session-1", 1).locate_state is LocateState.UNAVAILABLE

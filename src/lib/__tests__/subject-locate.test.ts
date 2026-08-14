@@ -6,6 +6,8 @@ import {
   locateStatusMessage,
   locateSearch,
   locateTargetFor,
+  locateView,
+  expectedSubjectLabel,
   normalizedBox,
   parseLocateReply,
   parseLocateSearch,
@@ -69,10 +71,42 @@ describe("locate reply validation", () => {
     expect(parseLocateReply("located", TARGET).ok).toBe(false);
   });
 
-  it("drops a box that accompanies a non-located state", () => {
-    const parsed = parseLocateReply(reply({ locate_state: "temporarily_lost" }), TARGET);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.value.bbox).toBeNull();
+  it("rejects, never sanitizes, a box on a non-located state", () => {
+    expect(parseLocateReply(reply({ locate_state: "temporarily_lost" }), TARGET).ok).toBe(false);
+    const clean = parseLocateReply(
+      reply({ locate_state: "temporarily_lost", bbox: null }),
+      TARGET,
+    );
+    expect(clean.ok).toBe(true);
+    if (clean.ok) expect(clean.value.bbox).toBeNull();
+  });
+
+  it("requires the deterministic anonymous label", () => {
+    expect(parseLocateReply(reply({ subject_label: "S7" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ subject_label: "Ahmad" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ subject_label: undefined }), TARGET).ok).toBe(false);
+    expect(expectedSubjectLabel(17)).toBe("S017");
+  });
+
+  it("requires a proven ACTIVE + CONFIRMED located answer", () => {
+    for (const lifecycle of ["temporarily_lost", "lost", "ended", null, undefined]) {
+      expect(parseLocateReply(reply({ lifecycle }), TARGET).ok).toBe(false);
+    }
+    for (const association of ["provisional", "unresolved", "conflict", null, undefined]) {
+      expect(parseLocateReply(reply({ association }), TARGET).ok).toBe(false);
+    }
+    expect(parseLocateReply(reply({ lifecycle: "asleep" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ association: "probably" }), TARGET).ok).toBe(false);
+  });
+
+  it("requires a real observation timestamp for a located answer", () => {
+    expect(parseLocateReply(reply({ last_seen_at: null }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ last_seen_at: "yesterday" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ last_seen_at: 12345 }), TARGET).ok).toBe(false);
+  });
+
+  it("requires a non-empty camera id for a located answer", () => {
+    expect(parseLocateReply(reply({ camera_id: "  " }), TARGET).ok).toBe(false);
   });
 
   it("only accepts fully normalized boxes", () => {
@@ -200,5 +234,87 @@ describe("object-cover geometry", () => {
         { width: 100, height: 100 },
       ),
     ).toBeNull();
+  });
+});
+
+describe("locate view: a failed poll never keeps an old highlight", () => {
+  const success = { data: located(), isPending: false, isError: false, dataUpdatedAt: 1000 };
+
+  it("draws the highlight for a fresh successful read", () => {
+    const view = locateView(TARGET, success, "cam-1", ["cam-1"]);
+    expect(view.highlight).toEqual({ box: located().bbox, label: "S007" });
+    expect(view.cameraSelection).toBe("cam-1");
+    expect(view.status).toBeNull();
+    expect(view.polling).toBe(true);
+  });
+
+  it("clears the highlight when a later poll fails, even though data is cached", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, isError: true, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.cameraSelection).toBeNull();
+    expect(view.status).toContain("could not be located");
+  });
+
+  it("clears the highlight when the failure is newer than the success", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, isError: false, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+  });
+
+  it("keeps the highlight when the last success is newer than an older failure", () => {
+    const view = locateView(
+      TARGET,
+      { ...success, dataUpdatedAt: 3000, errorUpdatedAt: 2000 },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).not.toBeNull();
+  });
+
+  it("clears the highlight while a new target is still pending", () => {
+    const view = locateView(
+      { ...TARGET, subjectNumber: 9 },
+      { data: located(), isPending: true, isError: false },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.status).toBe("Locating S009…");
+  });
+
+  it("clears the highlight for an unavailable answer", () => {
+    const view = locateView(
+      TARGET,
+      { data: located({ locateState: "unavailable", bbox: null }), isPending: false, isError: false },
+      "cam-1",
+      ["cam-1"],
+    );
+    expect(view.highlight).toBeNull();
+    expect(view.status).toContain("S007");
+  });
+
+  it("says the subject is on another camera instead of drawing it here", () => {
+    const view = locateView(TARGET, success, "cam-2", ["cam-1", "cam-2"]);
+    expect(view.highlight).toBeNull();
+    expect(view.status).toContain("another camera");
+  });
+
+  it("stops polling and shows nothing once the locate target is cleared", () => {
+    const view = locateView(null, success, "cam-1", ["cam-1"]);
+    expect(view).toEqual({
+      highlight: null,
+      cameraSelection: null,
+      status: null,
+      polling: false,
+    });
   });
 });

@@ -16,7 +16,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import (
@@ -486,18 +486,31 @@ class SubjectRuntime:
             collected.extend(registry.snapshots())
         return tuple(sorted(collected, key=lambda item: item.subject_number))
 
-    def locate(self, exam_session_id: str, subject_number: int) -> SubjectLocation:
+    def locate(
+        self,
+        exam_session_id: str,
+        subject_number: int,
+        *,
+        camera_connectivity: Optional[Mapping[str, bool]] = None,
+        now: Optional[datetime] = None,
+    ) -> SubjectLocation:
         """Read-only lookup of ONE existing subject number.
 
         Pure observation: it inspects the registries, mutates nothing, and never
         allocates, recovers, renumbers or transfers an identity. A number owned
         by more than one camera registry fails closed as ``ambiguous`` instead of
         guessing a camera.
+
+        A stored ACTIVE/CONFIRMED subject is only reported ``located`` while its
+        last real observation is still fresh under the existing subject timing
+        policy (``lost_after_seconds``), and while the owning camera is not known
+        disconnected. Staleness never mutates the registry.
         """
         with self._lock:
             state = self._sessions.get(exam_session_id)
             armed = state is not None
             owned = list(state.registries.items()) if state else []
+            freshness = float(state.config.lost_after_seconds) if state else None
         candidates = [
             (camera_id, snapshot)
             for camera_id, registry in owned
@@ -509,7 +522,11 @@ class SubjectRuntime:
             subject_number,
             armed=armed,
             candidates=candidates,
+            now=now or datetime.now(timezone.utc),
+            max_observation_age_seconds=freshness,
+            **({"camera_connectivity": camera_connectivity} if camera_connectivity else {}),
         )
+
 
     def status(self) -> dict:
         """Measured facts only — never a promised capability."""

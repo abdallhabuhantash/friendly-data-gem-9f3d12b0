@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from .geometry import BBox
 from .session_subjects import (
@@ -102,18 +102,64 @@ def _observable(bbox: Optional[BBox]) -> bool:
     return bbox.width > 0.0 and bbox.height > 0.0
 
 
+def observation_age_seconds(now: datetime, last_seen_at: Optional[datetime]) -> Optional[float]:
+    """Age of the last real observation, or ``None`` when it cannot be measured.
+
+    An unmeasurable age is treated by callers as "not fresh" — fail closed.
+    """
+    if last_seen_at is None:
+        return None
+    reference = now
+    if reference.tzinfo is None and last_seen_at.tzinfo is not None:
+        reference = reference.replace(tzinfo=last_seen_at.tzinfo)
+    if last_seen_at.tzinfo is None and reference.tzinfo is not None:
+        last_seen_at = last_seen_at.replace(tzinfo=reference.tzinfo)
+    try:
+        return (reference - last_seen_at).total_seconds()
+    except TypeError:  # pragma: no cover - mixed naive/aware beyond the fixes above
+        return None
+
+
+def _is_fresh(
+    now: Optional[datetime],
+    last_seen_at: Optional[datetime],
+    max_age_seconds: Optional[float],
+) -> bool:
+    """A stalled stream must never keep a subject LOCATED.
+
+    ``registry.update()`` only runs while frames arrive, so a disconnected or
+    stalled camera leaves the stored lifecycle ACTIVE indefinitely. Freshness is
+    therefore checked against the wall clock, read-only, using the existing
+    subject timing policy (``lost_after_seconds``).
+    """
+    if now is None or max_age_seconds is None:
+        return True  # the caller did not supply a clock/policy to check against
+    age = observation_age_seconds(now, last_seen_at)
+    if age is None:
+        return False
+    return age <= float(max_age_seconds)
+
+
 def locate_from_candidates(
     exam_session_id: str,
     subject_number: int,
     *,
     armed: bool,
     candidates: Iterable[tuple[str, SubjectSnapshot]] = (),
+    now: Optional[datetime] = None,
+    max_observation_age_seconds: Optional[float] = None,
+    camera_connectivity: Optional[Mapping[str, bool]] = None,
 ) -> SubjectLocation:
     """Pure locate decision from the current registry candidates.
 
     ``candidates`` are ``(camera_id, snapshot)`` pairs whose subject number
     equals ``subject_number``. More than one pair is an impossible internal
     condition: no camera is picked, the result fails closed as ``ambiguous``.
+
+    ``now`` + ``max_observation_age_seconds`` reject a stale observation, and
+    ``camera_connectivity`` rejects an observation whose owning camera is known
+    disconnected. Both only downgrade the reported state; nothing is mutated and
+    no position is ever predicted.
     """
     label = subject_label(subject_number)
     base = dict(
@@ -148,6 +194,12 @@ def locate_from_candidates(
         return SubjectLocation(**common, locate_state=LocateState.PROVISIONAL)
     if snapshot.association is not TrackAssociation.CONFIRMED:
         return SubjectLocation(**common, locate_state=LocateState.UNRESOLVED)
+    # A stored ACTIVE/CONFIRMED subject is not evidence of a CURRENT observation:
+    # a stalled stream stops updating the registry entirely.
+    if not _is_fresh(now, snapshot.last_seen_at, max_observation_age_seconds):
+        return SubjectLocation(**common, locate_state=LocateState.UNAVAILABLE)
+    if camera_connectivity is not None and camera_connectivity.get(camera_id, False) is False:
+        return SubjectLocation(**common, locate_state=LocateState.UNAVAILABLE)
     bbox = snapshot.motion.last_bbox if snapshot.motion else None
     if not _observable(bbox):
         return SubjectLocation(**common, locate_state=LocateState.UNAVAILABLE)
@@ -155,4 +207,10 @@ def locate_from_candidates(
     return SubjectLocation(**common, locate_state=LocateState.LOCATED, bbox=bbox)
 
 
-__all__ = ["LocateState", "SubjectLocation", "locate_from_candidates"]
+__all__ = [
+    "LocateState",
+    "SubjectLocation",
+    "locate_from_candidates",
+    "observation_age_seconds",
+]
+

@@ -1050,7 +1050,8 @@ class Orchestrator:
         held while the registries are read — the returned bounding box is a
         complete, non-torn observation of one frame, never a predicted position.
         A session that is not armed here reports ``not_armed`` instead of a
-        stale guess.
+        stale guess, and a subject whose owning camera is not currently
+        connected is reported ``unavailable`` rather than located.
         """
         if self.subjects is None:
             return locate_from_candidates(
@@ -1058,7 +1059,26 @@ class Orchestrator:
             ).payload()
         cameras = self.subjects.session_cameras(exam_session_id)
         with self._drained_cameras(cameras):
-            return self.subjects.locate(exam_session_id, int(subject_number)).payload()
+            return self.subjects.locate(
+                exam_session_id,
+                int(subject_number),
+                camera_connectivity=self._camera_connectivity(),
+            ).payload()
+
+    def _camera_connectivity(self) -> dict[str, bool]:
+        """Measured capture-worker connectivity. A missing worker is disconnected.
+
+        A worker without readable stats is reported as connected: unknown
+        connectivity is not evidence of a disconnection, and the observation
+        freshness check still rejects a stalled stream.
+        """
+        connectivity: dict[str, bool] = {}
+        for camera_id, worker in self.cameras.active.items():
+            stats = getattr(worker, "stats", None)
+            connected = getattr(stats, "connected", None)
+            connectivity[camera_id] = True if connected is None else bool(connected)
+        return connectivity
+
 
     def subject_status(self) -> dict:
         """Measured anonymous-subject diagnostics only."""

@@ -68,10 +68,28 @@ export function normalizedBox(raw: unknown): NormalizedBox | null {
   return { x, y, width, height };
 }
 
+/** Deterministic anonymous label for a subject number. Never roster identity. */
+export function expectedSubjectLabel(subjectNumber: number): string {
+  return `S${String(subjectNumber).padStart(3, "0")}`;
+}
+
+const LIFECYCLES = ["active", "temporarily_lost", "lost", "ended"] as const;
+const ASSOCIATIONS = ["confirmed", "provisional", "unresolved", "conflict"] as const;
+
+const optionalEnum = (value: unknown, allowed: readonly string[]): boolean =>
+  value === undefined ||
+  value === null ||
+  (typeof value === "string" && allowed.includes(value));
+
 /**
- * Strict reply validation. The result must be about the requested session and
- * subject number, and a `located` answer must carry a camera and a valid box —
- * otherwise it is rejected rather than displayed optimistically.
+ * Strict reply validation — the contract is enforced, never repaired.
+ *
+ * The reply must be about exactly the requested session and subject number, and
+ * carry the deterministic anonymous label. A `located` answer must prove an
+ * ACTIVE + CONFIRMED subject with a camera, a real timestamp and valid
+ * normalized geometry. A non-located answer that carries a box is malformed and
+ * is REJECTED rather than sanitized, so a broken HTTP 200 can never highlight
+ * anyone.
  */
 export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
   if (typeof raw !== "object" || raw === null) return { ok: false, message: MALFORMED };
@@ -80,17 +98,28 @@ export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
   if (!isState(state)) return { ok: false, message: MALFORMED };
   if (body["exam_session_id"] !== target.examSessionId) return { ok: false, message: MALFORMED };
   if (body["subject_number"] !== target.subjectNumber) return { ok: false, message: MALFORMED };
-  const label =
-    typeof body["subject_label"] === "string" && body["subject_label"].trim() !== ""
-      ? body["subject_label"]
-      : `S${String(target.subjectNumber).padStart(3, "0")}`;
+  const label = expectedSubjectLabel(target.subjectNumber);
+  if (body["subject_label"] !== label) return { ok: false, message: MALFORMED };
+  const lifecycle = body["lifecycle"];
+  const association = body["association"];
+  if (!optionalEnum(lifecycle, LIFECYCLES)) return { ok: false, message: MALFORMED };
+  if (!optionalEnum(association, ASSOCIATIONS)) return { ok: false, message: MALFORMED };
   const camera = typeof body["camera_id"] === "string" ? body["camera_id"] : null;
   const lastSeenAt =
     typeof body["last_seen_at"] === "string" && !Number.isNaN(Date.parse(body["last_seen_at"]))
       ? body["last_seen_at"]
       : null;
-  const bbox = normalizedBox(body["bbox"]);
-  if (state === "located" && (bbox === null || camera === null)) {
+  const rawBbox = body["bbox"];
+  const bbox = normalizedBox(rawBbox);
+  if (state === "located") {
+    if (lifecycle !== "active" || association !== "confirmed") {
+      return { ok: false, message: MALFORMED };
+    }
+    if (camera === null || camera.trim() === "") return { ok: false, message: MALFORMED };
+    if (lastSeenAt === null) return { ok: false, message: MALFORMED };
+    if (bbox === null) return { ok: false, message: MALFORMED };
+  } else if (rawBbox !== null && rawBbox !== undefined) {
+    // A non-located state must never be accompanied by geometry.
     return { ok: false, message: MALFORMED };
   }
   return {
@@ -102,11 +131,11 @@ export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
       locateState: state,
       cameraId: camera,
       lastSeenAt,
-      // A non-located answer never carries a highlight, whatever was sent.
       bbox: state === "located" ? bbox : null,
     },
   };
 }
+
 
 /** Truthful operator wording for every possible locate answer. */
 export function locateStatusMessage(state: LocateState, label: string): string {
@@ -196,4 +225,74 @@ export function locateTargetFor(attribution: {
   if (typeof session !== "string" || session.trim() === "") return null;
   if (typeof subject !== "number" || !Number.isInteger(subject) || subject < 1) return null;
   return { examSessionId: session, subjectNumber: subject };
+}
+
+/** Live-query facts the console is allowed to reason about. */
+export interface LocateQueryState {
+  data?: SubjectLocateResult | null | undefined;
+  isPending: boolean;
+  isError: boolean;
+  dataUpdatedAt?: number;
+  errorUpdatedAt?: number;
+}
+
+export interface LocateView {
+  /** The only highlight that may be drawn right now, if any. */
+  highlight: { box: NormalizedBox; label: string } | null;
+  /** Camera the viewport should switch to, or null to stay where it is. */
+  cameraSelection: string | null;
+  /** Truthful operator wording, or null when locate mode is off. */
+  status: string | null;
+  /** Whether the console should be polling the AI service at all. */
+  polling: boolean;
+}
+
+/**
+ * The single source of truth for what Locate mode shows.
+ *
+ * A cached success must never outlive a later failure: a pending request for a
+ * new target, an errored request, or a failure newer than the last success all
+ * clear the highlight explicitly here, rather than trusting the query cache to
+ * drop the old data.
+ */
+export function locateView(
+  target: LocateTarget | null,
+  state: LocateQueryState,
+  displayedCameraId: string | null | undefined,
+  availableCameraIds: readonly string[],
+): LocateView {
+  if (!target) return { highlight: null, cameraSelection: null, status: null, polling: false };
+  const failed =
+    state.isError ||
+    (state.errorUpdatedAt !== undefined &&
+      state.errorUpdatedAt > 0 &&
+      state.errorUpdatedAt >= (state.dataUpdatedAt ?? 0));
+  if (state.isPending || failed) {
+    return {
+      highlight: null,
+      cameraSelection: null,
+      status: state.isPending
+        ? `Locating ${expectedSubjectLabel(target.subjectNumber)}…`
+        : `${expectedSubjectLabel(target.subjectNumber)} could not be located right now, so no position is shown.`,
+      polling: true,
+    };
+  }
+  const result = state.data ?? null;
+  if (!result) {
+    return {
+      highlight: null,
+      cameraSelection: null,
+      status: `Locating ${expectedSubjectLabel(target.subjectNumber)}…`,
+      polling: true,
+    };
+  }
+  const highlight = locateHighlight(result, target, displayedCameraId ?? null);
+  const cameraSelection = locateCameraSelection(result, availableCameraIds);
+  const status =
+    result.locateState !== "located"
+      ? locateStatusMessage(result.locateState, result.subjectLabel)
+      : highlight
+        ? null
+        : `${result.subjectLabel} is observed on another camera.`;
+  return { highlight, cameraSelection, status, polling: true };
 }
