@@ -580,3 +580,34 @@ def test_end_acquires_camera_locks_in_deterministic_sorted_order():
     orchestrator.cameras.lock_order.clear()
     orchestrator.end_exam_session("session-1")
     assert orchestrator.cameras.lock_order == ["cam-1", "cam-2"]
+
+
+def test_locate_is_read_only_and_drains_the_session_cameras():
+    """Locate reports observation; it never transitions or allocates anything."""
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    feed(runtime, "cam-1", "raw-a", LEFT, start=0.0)
+    before = dict(repo.sessions["session-1"])
+    orchestrator.cameras.lock_order.clear()
+
+    payload = orchestrator.locate_subject("session-1", 1)
+
+    assert payload["exam_session_id"] == "session-1"
+    assert payload["subject_number"] == 1
+    assert payload["locate_state"] in {"located", "unavailable"}
+    # The inference-path lock of every session camera was held while reading.
+    assert orchestrator.cameras.lock_order == ["cam-1"]
+    # Nothing changed: no lifecycle write, no new subject number.
+    assert repo.sessions["session-1"] == before
+    assert [item.subject_number for item in runtime.snapshots("session-1")] == [1]
+
+
+def test_locate_of_an_unknown_number_never_allocates_one():
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    payload = orchestrator.locate_subject("session-1", 42)
+    assert payload["locate_state"] == "not_found"
+    assert payload["bbox"] is None
+    assert runtime.snapshots("session-1") == ()

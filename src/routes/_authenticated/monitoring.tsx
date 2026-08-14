@@ -20,9 +20,23 @@ import {
   useRecentEvents,
 } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import { useSubjectLocate } from "@/hooks/use-subject-locate";
+import {
+  locateCameraSelection,
+  locateHighlight,
+  locateStatusMessage,
+  parseLocateSearch,
+} from "@/lib/subject-locate";
 import type { Camera } from "@/types";
 
 export const Route = createFileRoute("/_authenticated/monitoring")({
+  // A locate request is a URL-level intent only; an invalid one is dropped.
+  validateSearch: (search: Record<string, unknown>) => {
+    const target = parseLocateSearch(search);
+    return target
+      ? { locateSession: target.examSessionId, locateSubject: target.subjectNumber }
+      : {};
+  },
   head: () => ({
     meta: [
       { title: "Live Monitoring — AI Smart Surveillance" },
@@ -79,6 +93,34 @@ function MonitoringPage() {
   const selectedEvent = selected
     ? events.find((event) => event.cameraId === selected.id)
     : undefined;
+
+  // --- locate one anonymous subject (read-only, measured by the AI service) ---
+  const search = Route.useSearch();
+  const locateTarget = useMemo(() => parseLocateSearch(search), [search]);
+  const locateQuery = useSubjectLocate(locateTarget);
+  const locateCamera = locateCameraSelection(
+    locateQuery.data,
+    cameras.map((camera) => camera.id),
+  );
+  useEffect(() => {
+    // A proven observation switches the viewport to the owning camera; a
+    // non-located answer never moves the operator anywhere.
+    if (!locateCamera) return;
+    setSelectedId(locateCamera);
+    setMode("single");
+  }, [locateCamera]);
+  const highlight = locateHighlight(locateQuery.data, locateTarget, selected?.id ?? null);
+  const locateStatus = !locateTarget
+    ? null
+    : locateQuery.isPending
+      ? "Locating subject…"
+      : locateQuery.isError
+        ? "The subject could not be located right now."
+        : locateQuery.data && locateQuery.data.locateState !== "located"
+          ? locateStatusMessage(locateQuery.data.locateState, locateQuery.data.subjectLabel)
+          : locateQuery.data && !highlight
+            ? `${locateQuery.data.subjectLabel} is observed on another camera.`
+            : null;
   return (
     <div className="flex h-screen min-h-[640px] w-full flex-col overflow-hidden bg-background">
       <SystemStatusBar
@@ -178,6 +220,8 @@ function MonitoringPage() {
               {...(selectedEvent ? { event: selectedEvent } : {})}
               overlays={overlays}
               onToggleOverlays={() => setOverlays((value) => !value)}
+              locate={highlight}
+              locateStatus={locateStatus}
             />
           ) : (
             <CameraWall cameras={cameras} onSelect={selectCamera} />

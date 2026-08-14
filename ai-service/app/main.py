@@ -92,6 +92,26 @@ async def end_exam_session(exam_session_id: str, x_service_key: Optional[str] = 
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/exam-sessions/{exam_session_id}/subjects/{subject_number}/locate")
+async def locate_subject(
+    exam_session_id: str,
+    subject_number: int,
+    x_service_key: Optional[str] = Header(default=None),
+) -> dict:
+    """Read-only: where was this existing anonymous subject last observed?
+
+    Never allocates, recovers or renumbers an identity, and never predicts a
+    position. Anything short of a proven observation returns no bounding box.
+    """
+    _require_key(x_service_key)
+    if subject_number < 1:
+        raise HTTPException(status_code=422, detail="subject_number must be >= 1")
+    orchestrator: Orchestrator = app.state.orchestrator
+    return await asyncio.to_thread(
+        orchestrator.locate_subject, exam_session_id, subject_number
+    )
+
+
 @app.get("/stream/{camera_id}")
 async def stream(camera_id: str, x_service_key: Optional[str] = Header(default=None)):
     """Annotated MJPEG for one camera, shared across all viewers."""

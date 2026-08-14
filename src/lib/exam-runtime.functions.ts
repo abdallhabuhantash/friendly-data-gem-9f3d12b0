@@ -20,55 +20,9 @@ import { parseEndReply, parseStartReply } from "@/lib/exam-runtime-contract";
 
 const input = z.object({ examSessionId: z.string().uuid() });
 
-type Outcome = { ok: true; body: unknown } | { ok: false; message: string };
-
-async function aiServiceCall(path: string): Promise<Outcome> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: settings } = await supabaseAdmin
-    .from("system_settings")
-    .select("ai_service_url")
-    .maybeSingle();
-
-  const base = (settings?.ai_service_url ?? "").trim().replace(/\/$/, "");
-  if (base === "") {
-    return { ok: false, message: "The AI service endpoint is not configured in Settings." };
-  }
-  let origin: URL;
-  try {
-    origin = new URL(base);
-  } catch {
-    return { ok: false, message: "The configured AI service endpoint is not a valid URL." };
-  }
-  if (origin.protocol !== "http:" && origin.protocol !== "https:") {
-    return { ok: false, message: "The AI service endpoint must be an http(s) URL." };
-  }
-
-  const serviceKey = process.env["AI_SERVICE_KEY"];
-  if (!serviceKey) {
-    return { ok: false, message: "AI_SERVICE_KEY is not set, so the AI service stays closed." };
-  }
-
-  try {
-    const response = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: { "X-Service-Key": serviceKey },
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      let detail = text;
-      try {
-        detail = String((JSON.parse(text) as { detail?: string }).detail ?? text);
-      } catch {
-        /* plain-text error body */
-      }
-      // The service key never travels back to the browser, whatever is echoed.
-      detail = detail.split(serviceKey).join("[redacted]").slice(0, 400);
-      return { ok: false, message: detail || `AI service returned ${response.status}.` };
-    }
-    return { ok: true, body: text === "" ? {} : (JSON.parse(text) as unknown) };
-  } catch {
-    return { ok: false, message: "The AI service is unreachable." };
-  }
+async function aiServiceCall(path: string) {
+  const { aiServiceCall: call } = await import("@/lib/ai-service.server");
+  return call(path, "POST");
 }
 
 async function assertAdministrator(context: { supabase: unknown; userId: string }) {
