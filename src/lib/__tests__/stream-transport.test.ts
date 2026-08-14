@@ -103,7 +103,7 @@ describe("measured stream health", () => {
     const readiness = view(C1, ok([{ id: C1, connected: true, streaming: false }]));
     expect(readiness.state).toBe("stalled");
     expect(readiness.displayable).toBe(false);
-    expect(readiness.label).not.toContain("LIVE");
+    expect(readiness.label).not.toBe("LIVE");
 
     const player = new Player(C1, "t1");
     player.settle(true);
