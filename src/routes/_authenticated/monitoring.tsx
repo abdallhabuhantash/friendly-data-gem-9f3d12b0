@@ -176,7 +176,19 @@ function MonitoringPage() {
               </span>
             </div>
             <div className="flex items-center gap-1">
+              {locateTarget && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 font-mono text-[9px]"
+                  onClick={stopLocating}
+                >
+                  <CrosshairOff className="size-3" /> STOP LOCATING{" "}
+                  {expectedSubjectLabel(locateTarget.subjectNumber)}
+                </Button>
+              )}
               <Button
+
                 variant={mode === "single" ? "secondary" : "ghost"}
                 size="sm"
                 className="h-7 px-2 font-mono text-[9px]"
