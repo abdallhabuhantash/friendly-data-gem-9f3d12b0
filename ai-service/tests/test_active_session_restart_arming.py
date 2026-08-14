@@ -9,6 +9,8 @@ were restored, which could mint a duplicate permanent identity.
 
 from __future__ import annotations
 
+import threading
+
 from datetime import datetime, timedelta, timezone
 
 from app.domain.geometry import BBox
@@ -118,6 +120,10 @@ def restarted(repository: FakeRepository) -> tuple[Orchestrator, SubjectRuntime]
     orchestrator.repository = repository  # type: ignore[attr-defined]
     orchestrator.subject_publisher = publisher  # type: ignore[attr-defined]
     orchestrator.subjects = runtime  # type: ignore[attr-defined]
+    # Lifecycle/reconciliation synchronisation primitives (normally built in
+    # Orchestrator.__init__, which a restart-path test bypasses on purpose).
+    orchestrator._lifecycle_lock = threading.RLock()  # type: ignore[attr-defined]
+    orchestrator._lifecycle_transitions = set()  # type: ignore[attr-defined]
     return orchestrator, runtime
 
 
