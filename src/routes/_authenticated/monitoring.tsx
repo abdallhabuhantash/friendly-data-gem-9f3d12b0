@@ -23,6 +23,13 @@ import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import type { Camera } from "@/types";
 
 export const Route = createFileRoute("/_authenticated/monitoring")({
+  // A locate request is a URL-level intent only; an invalid one is dropped.
+  validateSearch: (search: Record<string, unknown>) => {
+    const target = parseLocateSearch(search);
+    return target
+      ? { locateSession: target.examSessionId, locateSubject: target.subjectNumber }
+      : {};
+  },
   head: () => ({
     meta: [
       { title: "Live Monitoring — AI Smart Surveillance" },
