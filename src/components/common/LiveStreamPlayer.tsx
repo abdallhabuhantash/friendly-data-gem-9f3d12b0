@@ -9,7 +9,16 @@ import { createStreamTicket } from "@/lib/stream-ticket.functions";
  * The browser only ever talks to the app's own proxy route, never to the
  * camera or NVR.
  */
-export function LiveStreamPlayer({ cameraId, offline }: { cameraId: string; offline: boolean }) {
+export function LiveStreamPlayer({
+  cameraId,
+  offline,
+  onImageSize,
+}: {
+  cameraId: string;
+  offline: boolean;
+  /** Real intrinsic frame size, needed to place overlays over an object-cover image. */
+  onImageSize?: (size: { width: number; height: number } | null) => void;
+}) {
   const issueTicket = useServerFn(createStreamTicket);
   const [failed, setFailed] = useState(false);
 
