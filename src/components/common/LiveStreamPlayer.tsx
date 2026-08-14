@@ -54,7 +54,18 @@ export function LiveStreamPlayer({
       src={`/api/stream/${cameraId}?t=${encodeURIComponent(ticket.data.ticket)}`}
       alt="Annotated live camera stream with AI detection overlays"
       className="absolute inset-0 size-full object-cover"
-      onError={() => setFailed(true)}
+      onLoad={(event) => {
+        const target = event.currentTarget;
+        onImageSize?.(
+          target.naturalWidth > 0 && target.naturalHeight > 0
+            ? { width: target.naturalWidth, height: target.naturalHeight }
+            : null,
+        );
+      }}
+      onError={() => {
+        setFailed(true);
+        onImageSize?.(null);
+      }}
     />
   );
 }
