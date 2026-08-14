@@ -71,6 +71,13 @@ function MonitoringPage() {
   // ONE page-level measured stream-health poll (~2s) shared by the viewport and
   // every wall tile. There is never one /status poll per camera.
   const streamHealth = useStreamHealth(true);
+  // Ticks so the stream-health freshness deadline is re-evaluated even when no
+  // new reply ever arrives (a hung /status must not preserve a LIVE claim).
+  const [healthNow, setHealthNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setHealthNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
   // Everything below is persisted data only. There is no in-memory fallback:
   // when the database has no cameras or events, the UI says so.
   const cameras = useMemo(() => camerasQuery.data ?? [], [camerasQuery.data]);
@@ -105,9 +112,18 @@ function MonitoringPage() {
         health: streamHealth.data,
         healthFailed: streamHealth.isError,
         healthPending: streamHealth.isPending,
+        healthUpdatedAt: streamHealth.dataUpdatedAt,
+        now: healthNow,
       });
     },
-    [cameras, streamHealth.data, streamHealth.isError, streamHealth.isPending],
+    [
+      cameras,
+      streamHealth.data,
+      streamHealth.isError,
+      streamHealth.isPending,
+      streamHealth.dataUpdatedAt,
+      healthNow,
+    ],
   );
   const cameraIds = useMemo(() => cameras.map((camera) => camera.id), [cameras]);
   const selectedEvent = selected
