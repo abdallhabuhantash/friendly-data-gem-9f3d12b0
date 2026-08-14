@@ -18,8 +18,23 @@ import {
   useStartExamSession,
   useUpdateExamSession,
 } from "@/hooks/use-exams";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  canEditExamConfiguration,
+  examLifecycleDescription,
+} from "@/lib/exam-runtime-contract";
 import { EXAM_STATUS_LABELS } from "@/lib/exam-validation";
 import type { ExamSession, ExamSessionInput } from "@/types";
+
 
 export const Route = createFileRoute("/_authenticated/exam-sessions/$sessionId")({
   head: () => ({
