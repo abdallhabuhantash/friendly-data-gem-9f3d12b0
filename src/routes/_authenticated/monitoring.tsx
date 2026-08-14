@@ -92,7 +92,10 @@ function MonitoringPage() {
   const [selectedId, setSelectedId] = useState("");
   const [mode, setMode] = useState<"single" | "wall">("single");
   const [showCameras, setShowCameras] = useState(false);
-  const [showEvents, setShowEvents] = useState(true);
+  // Below xl, Live Events is an overlay drawer: it must start CLOSED so it can
+  // never cover the camera before the operator asks for it. At xl and above the
+  // panel is part of the normal layout (xl:relative xl:block) regardless.
+  const [showEvents, setShowEvents] = useState(false);
   // Wall pagination keeps simultaneous MJPEG connections bounded.
   const [wallPage, setWallPage] = useState(1);
   useEffect(() => {
@@ -197,7 +200,7 @@ function MonitoringPage() {
       />
       <div className="relative flex min-h-0 flex-1">
         <div
-          className={`${showCameras ? "absolute inset-y-0 left-0 z-50 block w-[270px] shadow-xl" : "hidden"} lg:block`}
+          className={`${showCameras ? "absolute inset-y-0 left-0 z-50 block w-full max-w-[270px] shadow-xl" : "hidden"} lg:block lg:w-[250px] lg:max-w-none lg:shrink-0`}
         >
           {activeRule ? (
             <CameraSidebar
@@ -233,33 +236,39 @@ function MonitoringPage() {
                 {selected ? `${selected.name} · ${selected.location}` : "No camera selected"}
               </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
+              {/* Stop Locating always stays reachable; only its text collapses. */}
               {locateTarget && (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 px-2 font-mono text-[9px]"
+                  className="h-7 shrink-0 px-2 font-mono text-[9px]"
                   onClick={stopLocating}
+                  aria-label={`Stop locating ${expectedSubjectLabel(locateTarget.subjectNumber)}`}
                 >
-                  <X className="size-3" /> STOP LOCATING{" "}
-                  {expectedSubjectLabel(locateTarget.subjectNumber)}
+                  <X className="size-3" />
+                  <span className="hidden sm:inline">
+                    STOP LOCATING {expectedSubjectLabel(locateTarget.subjectNumber)}
+                  </span>
                 </Button>
               )}
               <Button
                 variant={mode === "single" ? "secondary" : "ghost"}
                 size="sm"
-                className="h-7 px-2 font-mono text-[9px]"
+                className="h-7 shrink-0 px-2 font-mono text-[9px]"
                 onClick={() => setMode("single")}
+                aria-label="Single camera view"
               >
-                <Monitor className="size-3" /> 1 VIEW
+                <Monitor className="size-3" /> <span className="hidden sm:inline">1 VIEW</span>
               </Button>
               <Button
                 variant={mode === "wall" ? "secondary" : "ghost"}
                 size="sm"
-                className="h-7 px-2 font-mono text-[9px]"
+                className="h-7 shrink-0 px-2 font-mono text-[9px]"
                 onClick={() => setMode("wall")}
+                aria-label="Camera wall view"
               >
-                <Grid2X2 className="size-3" /> WALL
+                <Grid2X2 className="size-3" /> <span className="hidden sm:inline">WALL</span>
               </Button>
               <Button
                 variant="ghost"
@@ -314,14 +323,24 @@ function MonitoringPage() {
             />
           )}
         </main>
+        {/* Click-away backdrop: above the camera, below the drawer. */}
+        {showEvents && (
+          <button
+            type="button"
+            aria-label="Close live events"
+            className="absolute inset-0 z-40 bg-background/70 xl:hidden"
+            onClick={() => setShowEvents(false)}
+          />
+        )}
         <div
-          className={`${showEvents ? "absolute inset-y-0 right-0 z-40 block w-[350px] shadow-xl" : "hidden"} xl:relative xl:block`}
+          className={`${showEvents ? "absolute inset-y-0 right-0 z-50 block w-full max-w-[350px] shadow-xl" : "hidden"} xl:relative xl:block xl:w-[350px] xl:max-w-none xl:shrink-0`}
         >
           <LiveEventPanel
             events={events}
             attribution={attribution}
             loading={eventsQuery.isLoading}
             error={eventsQuery.isError}
+            onClose={() => setShowEvents(false)}
           />
         </div>
       </div>

@@ -288,3 +288,53 @@ describe("live monitoring source contract", () => {
     expect(page).toContain("min-h-0 min-w-0 flex-1 flex-col p-2");
   });
 });
+
+describe("responsive live-monitoring drawers", () => {
+  const panel = read("src/components/monitoring/LiveEventPanel.tsx");
+  const page = read("src/routes/_authenticated/monitoring.tsx");
+  const viewport = read("src/components/monitoring/MainMonitoringViewport.tsx");
+
+  it("A. below-xl Live Events is not forced open by the initial state", () => {
+    expect(page).toContain("useState(false);\n  // Wall pagination");
+    expect(page).toMatch(/const \[showEvents, setShowEvents\] = useState\(false\)/);
+  });
+
+  it("B. desktop xl layout still renders Live Events normally", () => {
+    expect(page).toContain("xl:relative xl:block xl:w-[350px]");
+  });
+
+  it("C. the drawer has an explicit close action", () => {
+    expect(panel).toContain('aria-label="Close live events"');
+    expect(panel).toContain("onClose");
+    expect(page).toContain("onClose={() => setShowEvents(false)}");
+    // VIEW ALL must survive.
+    expect(panel).toContain("VIEW ALL");
+  });
+
+  it("D. the drawer has a click-away backdrop above the camera, below the drawer", () => {
+    expect(page).toContain('className="absolute inset-0 z-40 bg-background/70 xl:hidden"');
+    expect(page).toContain("right-0 z-50 block w-full max-w-[350px]");
+  });
+
+  it("E. the event drawer width cannot exceed the viewport", () => {
+    expect(page).toContain("w-full max-w-[350px]");
+    expect(page).not.toContain('block w-[350px] shadow-xl');
+  });
+
+  it("F. the mobile Cameras drawer also cannot exceed the viewport", () => {
+    expect(page).toContain("w-full max-w-[270px]");
+    expect(page).not.toContain("block w-[270px] shadow-xl");
+  });
+
+  it("G. Stop Locating remains present and reachable", () => {
+    expect(page).toContain("aria-label={`Stop locating ");
+    expect(page).toContain("STOP LOCATING");
+  });
+
+  it("H. the invalid calc(100%-2.5rem) string no longer exists", () => {
+    for (const source of [viewport, page, panel]) {
+      expect(source).not.toContain("calc(100%-2.5rem)");
+    }
+    expect(viewport).toContain("max-w-[calc(100%_-_2.5rem)]");
+  });
+});

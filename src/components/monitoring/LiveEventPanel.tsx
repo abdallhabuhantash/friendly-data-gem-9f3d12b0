@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Image as ImageIcon } from "lucide-react";
+import { AlertTriangle, Image as ImageIcon, X } from "lucide-react";
 import { AssociationBadge, StatusBadge } from "@/components/common/EventBadges";
 import { Button } from "@/components/ui/button";
 import { useEventSnapshot } from "@/hooks/use-monitoring";
@@ -116,27 +116,41 @@ export function LiveEventPanel({
   attribution,
   loading = false,
   error = false,
+  onClose,
 }: {
   events: DetectionEvent[];
   /** ONE batched attribution read — never one query per card. */
   attribution: AttributionRead;
   loading?: boolean;
   error?: boolean;
+  /** Closes the responsive drawer; only rendered where drawer behaviour applies. */
+  onClose?: () => void;
 }) {
   const pending = events.filter((event) => event.status === "new").length;
   return (
-    <aside className="flex min-h-0 w-full flex-col border-l border-border bg-surface lg:w-[350px] lg:shrink-0">
+    <aside className="flex min-h-0 w-full flex-col border-l border-border bg-surface lg:shrink-0">
       <header className="grid h-12 grid-cols-[minmax(0,1fr)_auto] items-center border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <AlertTriangle className="size-3.5 text-warning" />
-          <h2 className="label-tech text-foreground">Live events</h2>
-          <span className="font-mono text-[9px] text-primary">{pending} NEW</span>
+          <AlertTriangle className="size-3.5 shrink-0 text-warning" />
+          <h2 className="label-tech truncate text-foreground">Live events</h2>
+          <span className="shrink-0 font-mono text-[9px] text-primary">{pending} NEW</span>
         </div>
-        <div className="flex">
+        <div className="flex shrink-0 items-center">
           {/* No filter control here: a dead operator control is worse than none. */}
           <Button asChild variant="ghost" size="sm" className="h-7 px-2 font-mono text-[9px]">
             <Link to="/events">VIEW ALL</Link>
           </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 xl:hidden"
+              onClick={onClose}
+              aria-label="Close live events"
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
         </div>
 
       </header>
