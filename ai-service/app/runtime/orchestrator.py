@@ -50,7 +50,7 @@ from ..notifications.telegram import TelegramProvider
 from .frame_gate import FrameGate
 from .health_reporter import HealthReporter, measure_gpu_load
 from .pose_runtime import PoseRuntime
-from .subject_runtime import ArmedSession, SubjectRuntime
+from .subject_runtime import ArmedSession, CameraOwnershipConflict, SubjectRuntime
 from .stream_hub import StreamHub
 
 
