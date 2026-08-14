@@ -239,16 +239,30 @@ function Health({
   );
 }
 
+/**
+ * Bounded camera wall. At most MAX_WALL_STREAMS cameras are RENDERED at a time,
+ * so the browser can never open more simultaneous MJPEG connections than that.
+ * Cameras outside the current page are not mounted at all — no hidden players,
+ * no display:none preloading — so their stream lifecycles cancel through the
+ * existing LiveStreamPlayer/proxy cancellation path.
+ */
 export function CameraWall({
   cameras,
   onSelect,
   readinessFor,
+  page,
+  onPageChange,
 }: {
   cameras: Camera[];
   onSelect: (camera: Camera) => void;
   /** One shared page-level health result; each tile decides for itself. */
   readinessFor: (cameraId: string) => StreamReadiness;
+  page: number;
+  onPageChange: (page: number) => void;
 }) {
+  const pageCount = wallPageCount(cameras.length);
+  const current = clampWallPage(page, cameras.length);
+  const visible = wallPageCameras(cameras, current);
   if (cameras.length === 0)
     return (
       <div className="grid min-h-0 flex-1 place-items-center border border-border bg-surface/40 font-mono text-[10px] uppercase text-muted-foreground">
@@ -256,37 +270,71 @@ export function CameraWall({
       </div>
     );
   return (
-    <div
-      className={cn(
-        "grid min-h-0 flex-1 gap-1 bg-background p-1",
-        cameras.length === 1 ? "grid-cols-1" : cameras.length <= 4 ? "grid-cols-2" : "grid-cols-3",
-      )}
-    >
-      {cameras.map((camera) => {
-        const readiness = readinessFor(camera.id);
-        return (
-          <button
-            key={camera.id}
-            type="button"
-            onClick={() => onSelect(camera)}
-            className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-1 p-1",
+          visible.length === 1
+            ? "grid-cols-1"
+            : visible.length === 2
+              ? "grid-cols-1 sm:grid-cols-2"
+              : "grid-cols-1 sm:grid-cols-2 sm:grid-rows-2",
+        )}
+      >
+        {visible.map((camera) => {
+          const readiness = readinessFor(camera.id);
+          return (
+            <button
+              key={camera.id}
+              type="button"
+              onClick={() => onSelect(camera)}
+              className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+            >
+              <div className="hud-grid absolute inset-0 grid place-items-center">
+                <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
+              </div>
+              <div className="absolute inset-x-0 bottom-0 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 bg-background/85 px-2 py-1 font-mono text-[9px]">
+                <span className="truncate">
+                  CH{String(camera.channel).padStart(2, "0")} · {camera.name}
+                </span>
+                <span className={readiness.displayable ? "text-success" : "text-destructive"}>
+                  {readiness.displayable ? "LIVE" : readiness.label}
+                </span>
+              </div>
+              <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
+            </button>
+          );
+        })}
+      </div>
+      {pageCount > 1 && (
+        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border bg-surface px-2 font-mono text-[9px]">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 font-mono text-[9px]"
+            disabled={current <= 1}
+            onClick={() => onPageChange(current - 1)}
+            aria-label="Previous wall page"
           >
-            <div className="hud-grid absolute inset-0 grid place-items-center">
-              <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
-            </div>
-            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
-              <span className="truncate">
-                CH{String(camera.channel).padStart(2, "0")} · {camera.name}
-              </span>
-              <span className={readiness.displayable ? "text-success" : "text-destructive"}>
-                {readiness.displayable ? "LIVE" : readiness.label}
-              </span>
-            </div>
-            <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
-          </button>
-        );
-      })}
+            <ChevronLeft className="size-3" /> PREVIOUS
+          </Button>
+          <span className="text-muted-foreground">
+            PAGE {current} / {pageCount} · {visible.length} OF {cameras.length} CAMERAS LIVE
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 font-mono text-[9px]"
+            disabled={current >= pageCount}
+            onClick={() => onPageChange(current + 1)}
+            aria-label="Next wall page"
+          >
+            NEXT <ChevronRight className="size-3" />
+          </Button>
+        </div>
+      )}
     </div>
   );
+
 }
 
