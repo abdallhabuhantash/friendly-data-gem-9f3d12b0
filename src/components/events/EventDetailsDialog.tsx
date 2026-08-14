@@ -10,6 +10,7 @@ import { ReviewConfirmDialog, type ReviewDecision } from "@/components/events/Re
 import { SubjectAttributionSummary } from "@/components/events/SubjectAttributionSummary";
 import type { EventAttributionDisplay } from "@/lib/attribution-state";
 import { Button } from "@/components/ui/button";
+import { LocateSubjectButton } from "@/components/common/LocateSubjectButton";
 import {
   Dialog,
   DialogContent,
