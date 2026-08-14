@@ -348,7 +348,7 @@ function NotificationReadiness({ soundAlerts }: { soundAlerts: boolean }) {
   return (
     <Panel
       title="Notification readiness"
-      subtitle="Provider credentials live only in the local AI service configuration."
+      subtitle="External message delivery is not connected in this build. No provider credentials or phone numbers are configured here."
       bodyClassName="space-y-1.5 p-3 lg:col-span-2"
     >
       {channels.map((channel) => (
