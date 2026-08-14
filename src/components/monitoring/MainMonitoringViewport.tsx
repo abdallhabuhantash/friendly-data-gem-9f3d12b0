@@ -53,11 +53,8 @@ export function MainMonitoringViewport({
   const fullscreen = () => {
     void frameRef.current?.requestFullscreen();
   };
-  // Effective status: a camera whose heartbeat stopped is shown offline even if
-  // the stored status column still says online.
-  const status = effectiveCameraStatus(camera);
   const stale = isCameraStale(camera);
-  const offline = status === "offline";
+
   // Viewport, HUD and stream player share ONE truth: the stream is only called
   // live while the AI service currently measures fresh annotated frames.
   const live = readiness.displayable;
