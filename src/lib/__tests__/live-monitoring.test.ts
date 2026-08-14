@@ -157,6 +157,7 @@ describe("viewport LIVE truth source", () => {
     const pending = streamReadiness({
       cameraId: "c1",
       cameraOffline: false,
+      health: undefined,
       healthFailed: false,
       healthPending: true,
       healthUpdatedAt: 0,
