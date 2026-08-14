@@ -23,7 +23,7 @@ import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useRealtimeAttribution } from "@/hooks/use-realtime-attribution";
 import { useEventAttribution } from "@/hooks/use-subject-attribution";
 import { eventAttributionDisplay } from "@/lib/attribution-state";
-import { liveAlertEvent } from "@/lib/live-monitoring";
+import { clampWallPage, liveAlertEvent } from "@/lib/live-monitoring";
 import { useStreamHealth } from "@/hooks/use-stream-health";
 import { effectiveCameraStatus } from "@/lib/health";
 import { streamReadiness } from "@/lib/stream-health";
