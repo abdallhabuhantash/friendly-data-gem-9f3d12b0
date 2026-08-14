@@ -45,11 +45,11 @@ export function ExamNotificationsPanel({ session }: { session: ExamSession }) {
     () =>
       formatExamNotificationPreview(draft.previewType, {
         examTitle: session.title,
-        courseCode: session.courseCode ?? null,
-        location: session.location ?? null,
+        courseCode: session.courseCode.trim() === "" ? null : session.courseCode,
+        location: session.locationLabel.trim() === "" ? null : session.locationLabel,
         cameraLabel: PREVIEW_CAMERA_LABEL,
       }),
-    [draft.previewType, session.title, session.courseCode, session.location],
+    [draft.previewType, session.title, session.courseCode, session.locationLabel],
   );
 
   return (
