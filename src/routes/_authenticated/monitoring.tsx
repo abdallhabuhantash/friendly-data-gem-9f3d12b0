@@ -20,6 +20,10 @@ import {
   useRecentEvents,
 } from "@/hooks/use-monitoring";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
+import { useRealtimeAttribution } from "@/hooks/use-realtime-attribution";
+import { useEventAttribution } from "@/hooks/use-subject-attribution";
+import { eventAttributionDisplay } from "@/lib/attribution-state";
+import { liveAlertEvent } from "@/lib/live-monitoring";
 import { useStreamHealth } from "@/hooks/use-stream-health";
 import { effectiveCameraStatus } from "@/lib/health";
 import { streamReadiness } from "@/lib/stream-health";
@@ -68,6 +72,9 @@ function MonitoringPage() {
   const nvr = useNvrStatus();
   const rules = useAiRules();
   useRealtimeEvents({ notify: true });
+  // Attribution/identity freshness: an event_subject link may arrive after the
+  // event row, and a human resolution may happen in another tab.
+  useRealtimeAttribution();
   // ONE page-level measured stream-health poll (~2s) shared by the viewport and
   // every wall tile. There is never one /status poll per camera.
   const streamHealth = useStreamHealth(true);
@@ -84,7 +91,6 @@ function MonitoringPage() {
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
   const [selectedId, setSelectedId] = useState("");
   const [mode, setMode] = useState<"single" | "wall">("single");
-  const [overlays, setOverlays] = useState(true);
   const [showCameras, setShowCameras] = useState(false);
   const [showEvents, setShowEvents] = useState(true);
   useEffect(() => {
@@ -126,6 +132,14 @@ function MonitoringPage() {
     ],
   );
   const cameraIds = useMemo(() => cameras.map((camera) => camera.id), [cameras]);
+  // ONE batched attribution read for the bounded recent event list.
+  const attribution = useEventAttribution(events);
+  // Recent history (right panel) is separate from the temporary live alert:
+  // the same 1s clock expires the overlay even when no new event arrives.
+  const activeAlert = liveAlertEvent(events, selected?.id ?? null, healthNow);
+  const activeAlertAttribution = activeAlert
+    ? eventAttributionDisplay(attribution, activeAlert.examSessionId, activeAlert.id)
+    : undefined;
   const selectedEvent = selected
     ? events.find((event) => event.cameraId === selected.id)
     : undefined;
@@ -270,12 +284,8 @@ function MonitoringPage() {
           ) : mode === "single" ? (
             <MainMonitoringViewport
               camera={selected}
-              // Overlays come from the annotated AI stream or real event
-              // evidence only; nothing is simulated client-side.
-              detections={[]}
-              {...(selectedEvent ? { event: selectedEvent } : {})}
-              overlays={overlays}
-              onToggleOverlays={() => setOverlays((value) => !value)}
+              {...(activeAlert ? { event: activeAlert } : {})}
+              {...(activeAlertAttribution ? { eventAttribution: activeAlertAttribution } : {})}
               readiness={readinessFor(selected.id)}
               locate={highlight}
               locateStatus={locateStatus}
@@ -297,6 +307,7 @@ function MonitoringPage() {
         >
           <LiveEventPanel
             events={events}
+            attribution={attribution}
             loading={eventsQuery.isLoading}
             error={eventsQuery.isError}
           />

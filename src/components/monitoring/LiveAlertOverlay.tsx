@@ -1,21 +1,32 @@
 import { AlertTriangle } from "lucide-react";
 import {
-  displayPersonId,
   eventSubtitle,
   eventTitle,
   formatPercent,
   formatSeconds,
 } from "@/lib/event-presentation";
+import { alertSubjectText } from "@/lib/live-monitoring";
+import type { EventAttributionDisplay } from "@/lib/attribution-state";
 import type { Camera, DetectionEvent } from "@/types";
 
-export function LiveAlertOverlay({ event, camera }: { event?: DetectionEvent; camera: Camera }) {
+export function LiveAlertOverlay({
+  event,
+  camera,
+  attribution,
+}: {
+  event?: DetectionEvent;
+  camera: Camera;
+  /** Truthful anonymous subject presentation for this event. */
+  attribution?: EventAttributionDisplay;
+}) {
   // Frontend safety guard: an uncertain association is never presented as a
   // confirmed critical accusation, even if an upstream payload claims
   // severity = critical. It degrades to a warning-level review prompt.
   const uncertain = event?.associationStatus === "uncertain";
   if (!event || (event.severity !== "critical" && !uncertain)) return null;
-  // Person IDs are only definitive for reliably associated detections.
-  const personId = displayPersonId(event);
+  // Anonymous subject attribution only: raw tracker ids never appear here, and
+  // a pending or failed read never becomes a guessed subject.
+  const subject = attribution ? alertSubjectText(attribution) : null;
   const toneLabel = uncertain
     ? "Warning · human review required"
     : "Critical alert · human review required";
@@ -52,10 +63,9 @@ export function LiveAlertOverlay({ event, camera }: { event?: DetectionEvent; ca
         <div
           className={`border-r p-2 ${uncertain ? "border-warning/20" : "border-destructive/20"}`}
         >
-          <dt className="text-muted-foreground">TRACK / TRIGGER</dt>
-          <dd className="mt-0.5 text-foreground">
-            {personId ? `ID ${personId}` : "—"} ·{" "}
-            {formatPercent(event.triggerConfidence ?? event.confidence)}
+          <dt className="text-muted-foreground">SUBJECT / TRIGGER</dt>
+          <dd className="mt-0.5 truncate text-foreground">
+            {subject ?? "—"} · {formatPercent(event.triggerConfidence ?? event.confidence)}
           </dd>
         </div>
         <div

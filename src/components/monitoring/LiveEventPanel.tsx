@@ -4,13 +4,14 @@ import { AssociationBadge, StatusBadge } from "@/components/common/EventBadges";
 import { Button } from "@/components/ui/button";
 import { useEventSnapshot } from "@/hooks/use-monitoring";
 import {
-  displayPersonId,
   displaySeverity,
   eventSubtitle,
   eventTitle,
   formatSeconds,
 } from "@/lib/event-presentation";
 import { formatRelative } from "@/lib/format";
+import { eventAttributionDisplay, type AttributionRead } from "@/lib/attribution-state";
+import { subjectSummaryText } from "@/lib/live-monitoring";
 import { cn } from "@/lib/utils";
 import type { DetectionEvent } from "@/types";
 
@@ -45,12 +46,18 @@ function EvidenceThumbnail({ event, enabled }: { event: DetectionEvent; enabled:
 function LiveEventCard({
   event,
   enableSnapshot,
+  attribution,
 }: {
   event: DetectionEvent;
   enableSnapshot: boolean;
+  /** ONE batched attribution read for the whole recent event list. */
+  attribution: AttributionRead;
 }) {
-  // Structured fields only — never parsed out of the reviewer note.
-  const person = displayPersonId(event);
+  // Exam identity comes only from persisted anonymous subject attribution.
+  // Raw tracker ids are internal and never rendered here.
+  const subject = subjectSummaryText(
+    eventAttributionDisplay(attribution, event.examSessionId, event.id),
+  );
   const subtitle = eventSubtitle(event);
   const severity = displaySeverity(event);
   return (
@@ -87,8 +94,8 @@ function LiveEventCard({
           {subtitle ?? "AI detection · Review required"}
         </p>
         <p className="mt-1 truncate font-mono text-[8px] text-muted-foreground">
-          {event.cameraName}
-          {person ? ` · TRACK ${person}` : ""} · {formatSeconds(event.detectionDurationSeconds)}
+          {subject ? `${subject} · ` : ""}
+          {event.cameraName} · {formatSeconds(event.detectionDurationSeconds)}
         </p>
         <div className="mt-1.5 flex items-center justify-between gap-2">
           <span className="font-mono text-[9px] text-primary">
@@ -106,10 +113,13 @@ function LiveEventCard({
 
 export function LiveEventPanel({
   events,
+  attribution,
   loading = false,
   error = false,
 }: {
   events: DetectionEvent[];
+  /** ONE batched attribution read — never one query per card. */
+  attribution: AttributionRead;
   loading?: boolean;
   error?: boolean;
 }) {
@@ -139,7 +149,12 @@ export function LiveEventPanel({
         )}
         {events.map((event, index) => (
           // Signed URLs are only requested for the first few visible events.
-          <LiveEventCard key={event.id} event={event} enableSnapshot={index < 8} />
+          <LiveEventCard
+            key={event.id}
+            event={event}
+            enableSnapshot={index < 8}
+            attribution={attribution}
+          />
         ))}
       </div>
       <div className="border-t border-border p-2 text-center font-mono text-[8px] uppercase text-muted-foreground">
