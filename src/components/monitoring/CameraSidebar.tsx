@@ -151,13 +151,19 @@ export function CameraSidebar({
           <dd className="text-foreground">
             {rule ? `${Math.round(rule.confidenceThreshold * 100)}%` : "—"}
           </dd>
-          <dt className="text-muted-foreground">AI cameras</dt>
+          <dt className="text-muted-foreground">AI enabled</dt>
           <dd className="text-foreground">{cameras.filter((camera) => camera.aiEnabled).length}</dd>
-          <dt className="text-muted-foreground">Source</dt>
-          <dd className="flex items-center gap-1 text-foreground">
-            <Video className="size-3" /> {cameras.length > 0 ? "IP / NVR" : "—"}
-          </dd>
+          {sourceLabel && (
+            <>
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="flex min-w-0 items-center gap-1 text-foreground">
+                <Video className="size-3 shrink-0" />
+                <span className="truncate">{sourceLabel}</span>
+              </dd>
+            </>
+          )}
         </dl>
+
       </div>
     </aside>
   );
