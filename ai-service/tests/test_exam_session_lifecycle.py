@@ -13,6 +13,7 @@ the lifecycle contract is proven without a database or cameras:
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -137,8 +138,21 @@ class FakeRepository:
 
 
 class FakeCameraManager:
+    """Only what the lifecycle needs: active cameras + per-camera lifecycle locks."""
+
     def __init__(self, camera_ids: tuple[str, ...]) -> None:
         self.active = {camera_id: object() for camera_id in camera_ids}
+        self._locks: dict[str, threading.RLock] = {}
+        self.lock_order: list[str] = []
+
+    def lock(self, camera_id: str) -> threading.RLock:
+        existing = self._locks.get(camera_id)
+        if existing is None:
+            existing = threading.RLock()
+            self._locks[camera_id] = existing
+        self.lock_order.append(camera_id)
+        return existing
+
 
 
 def build(repository: FakeRepository, cameras: tuple[str, ...] = ("cam-1",)):
@@ -450,3 +464,119 @@ def test_unknown_session_is_reported_as_missing():
         orchestrator.arm_exam_session("nope")
     with pytest.raises(LookupError):
         orchestrator.end_exam_session("nope")
+
+
+# ================================== END STOP BOUNDARY / FRAME DRAIN (18-22)
+
+
+def _inflight_frame(orchestrator, runtime, log, *, moment=at(1.0)):
+    """Mimics the camera path: state mutation inside the camera lifecycle lock."""
+
+    def run() -> None:
+        with orchestrator.cameras.lock("cam-1"):
+            log.append("frame-enter")
+            time.sleep(0.15)
+            runtime.observe(frame("cam-1", "raw-a", LEFT, moment))
+            log.append("frame-exit")
+
+    return threading.Thread(target=run, name="inflight-frame")
+
+
+def test_end_waits_for_an_inflight_frame_before_persisting_ended():
+    log: list[str] = []
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    feed(runtime, "cam-1", "raw-a", LEFT)
+
+    original = repo.transition_exam_session
+
+    def recording(exam_session_id, **kwargs):  # noqa: ANN001, ANN003
+        log.append("persist")
+        return original(exam_session_id, **kwargs)
+
+    repo.transition_exam_session = recording  # type: ignore[assignment]
+
+    worker = _inflight_frame(orchestrator, runtime, log)
+    worker.start()
+    while "frame-enter" not in log:
+        time.sleep(0.005)
+    orchestrator.end_exam_session("session-1")
+    worker.join(5)
+    assert log.index("frame-exit") < log.index("persist")
+    assert repo.sessions["session-1"]["status"] == "ended"
+
+
+def test_a_later_frame_cannot_enter_processing_while_end_holds_camera_locks():
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    entered: list[bool] = []
+    original = repo.transition_exam_session
+
+    def probing(exam_session_id, **kwargs):  # noqa: ANN001, ANN003
+        def probe() -> None:
+            acquired = orchestrator.cameras.lock("cam-1").acquire(blocking=False)
+            entered.append(acquired)
+            if acquired:
+                orchestrator.cameras.lock("cam-1").release()
+
+        thread = threading.Thread(target=probe)
+        thread.start()
+        thread.join(5)
+        return original(exam_session_id, **kwargs)
+
+    repo.transition_exam_session = probing  # type: ignore[assignment]
+    orchestrator.end_exam_session("session-1")
+    assert entered == [False]  # the stop boundary keeps later frames out
+
+
+def test_after_the_end_boundary_no_frame_produces_subject_state_or_attribution():
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    feed(runtime, "cam-1", "raw-a", LEFT)
+    orchestrator.end_exam_session("session-1")
+
+    with orchestrator.cameras.lock("cam-1"):
+        assert runtime.observe(frame("cam-1", "raw-a", LEFT, at(3.0))) is None
+        assert runtime.observe(frame("cam-1", "raw-new", LEFT, at(3.2))) is None
+    # No exam session owns the camera, so no exam attribution can be derived.
+    assert runtime.owner_of("cam-1") is None
+    assert runtime.snapshots("session-1") == ()
+    assert not runtime.is_armed("session-1")
+
+
+def test_end_persistence_failure_after_drain_resumes_and_keeps_monitoring():
+    log: list[str] = []
+    repo = FakeRepository({"session-1": session_row("ready")}, fail_transition_to="ended")
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    feed(runtime, "cam-1", "raw-a", LEFT)
+
+    worker = _inflight_frame(orchestrator, runtime, log)
+    worker.start()
+    while "frame-enter" not in log:
+        time.sleep(0.005)
+    with pytest.raises(RuntimeError):
+        orchestrator.end_exam_session("session-1")
+    worker.join(5)
+
+    assert "frame-exit" in log
+    assert repo.sessions["session-1"]["status"] == "active"
+    assert runtime.is_armed("session-1")
+    assert runtime.owner_of("cam-1") == "session-1"
+    result = feed(runtime, "cam-1", "raw-a", LEFT, start=2.0)
+    assert result is not None
+    assert [item.subject_number for item in runtime.snapshots("session-1")] == [1]
+
+
+def test_end_acquires_camera_locks_in_deterministic_sorted_order():
+    repo = FakeRepository(
+        {"session-1": {"id": "session-1", "status": "ready", "camera_ids": ["cam-2", "cam-1"]}}
+    )
+    orchestrator, _ = build(repo, cameras=("cam-1", "cam-2"))
+    orchestrator.arm_exam_session("session-1")
+    orchestrator.cameras.lock_order.clear()
+    orchestrator.end_exam_session("session-1")
+    assert orchestrator.cameras.lock_order == ["cam-1", "cam-2"]

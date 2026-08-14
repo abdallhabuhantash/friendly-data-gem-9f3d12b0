@@ -122,7 +122,7 @@ function ExamSessionDetailPage() {
                         label="Start exam session"
                         icon={<Play className="mr-1 size-3.5" />}
                         title="Start monitoring for this exam session?"
-                        body="Monitoring will be armed on the assigned cameras and anonymous subjects (S001, S002, …) will start being created. Nothing is reported as started unless the AI service confirms it."
+                        body="Confirm that exam-paper distribution and room setup are complete before starting. Anonymous subject monitoring (S001, S002, …) begins immediately after Start on the assigned cameras. Nothing is reported as started unless the AI service confirms it."
                         confirmLabel="Start monitoring"
                         pending={start.isPending}
                         onConfirm={async () => {
@@ -214,7 +214,12 @@ function ExamSessionDetailPage() {
 
             <SubjectsPanel session={data} />
 
-            <RosterPanel examSessionId={data.id} canEdit={isAdministrator} />
+            {/* Roster editing follows exam configuration: read-only once ACTIVE/ENDED. */}
+            <RosterPanel
+              examSessionId={data.id}
+              canEdit={isAdministrator && canEditExamConfiguration(data.status)}
+            />
+
 
             <ExamSessionFormDialog
               open={editing}
