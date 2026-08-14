@@ -32,11 +32,61 @@ COLOR_TEXT = (240, 240, 240)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def _label(frame, text: str, origin: tuple[int, int], color) -> None:
+UNRESOLVED_LABEL = "UNRESOLVED"
+
+
+def _label(frame, text: str, origin: tuple[int, int], color, scale: float = 0.42) -> None:
     x, y = origin
-    (width, height), _ = cv2.getTextSize(text, FONT, 0.42, 1)
+    (width, height), _ = cv2.getTextSize(text, FONT, scale, 1)
     cv2.rectangle(frame, (x, max(0, y - height - 6)), (x + width + 6, y), color, -1)
-    cv2.putText(frame, text, (x + 3, y - 4), FONT, 0.42, (12, 18, 32), 1, cv2.LINE_AA)
+    cv2.putText(frame, text, (x + 3, y - 4), FONT, scale, (12, 18, 32), 1, cv2.LINE_AA)
+
+
+def subject_label_for(
+    tracking_id: Optional[str], subject_labels: Optional[dict[str, str]]
+) -> Optional[str]:
+    """Human-facing anonymous identity for a raw track, or None when unarmed.
+
+    ``subject_labels is None`` means anonymous subject mode is NOT active for
+    this frame (ordinary monitoring, or subject processing produced no result),
+    so no anonymous identity may be claimed. An empty mapping means the mode IS
+    active but no current track is safely owned, which renders as
+    ``UNRESOLVED`` — never a raw tracker id.
+    """
+    if subject_labels is None:
+        return None
+    return subject_labels.get(tracking_id or "") or UNRESOLVED_LABEL
+
+
+def person_caption(
+    detection: Detection, subject_labels: Optional[dict[str, str]] = None
+) -> str:
+    """Operator-facing person caption. Never contains a raw tracker id."""
+    confidence = f"{round(detection.confidence * 100)}%"
+    subject = subject_label_for(detection.tracking_id, subject_labels)
+    if subject is None:
+        return f"PERSON {confidence}"
+    return f"{subject} - PERSON {confidence}"
+
+
+def phone_caption(
+    detection: Detection,
+    association: Optional[AssociationResult] = None,
+    subject_labels: Optional[dict[str, str]] = None,
+) -> str:
+    """Operator-facing phone caption. Never contains a raw tracker id."""
+    base = f"PHONE {round(detection.confidence * 100)}%"
+    if association is None:
+        return base
+    if association.status is AssociationStatus.UNCERTAIN:
+        return f"{base} - ASSOCIATION UNCERTAIN"
+    if association.status is AssociationStatus.ASSOCIATED:
+        if subject_labels is None:
+            return f"{base} - ASSOCIATED"
+        # Same-frame mapping only: never a database or cross-frame lookup.
+        subject = subject_label_for(association.person_tracking_id, subject_labels)
+        return f"{base} -> {subject}"
+    return base
 
 
 def annotate_frame(
@@ -51,14 +101,13 @@ def annotate_frame(
     """Draws persons, phones and association state onto a copy of the frame.
 
     ``subject_labels`` maps a raw tracking id to its anonymous exam-session
-    label (``S001``). A raw track without an owning subject is drawn as
-    ``UNRESOLVED``: the overlay never invents an identity, and never shows a
-    name, a university ID or any personal data.
+    label (``S001``); ``None`` means anonymous subject mode is not active for
+    this frame. The overlay never invents an identity, never shows a raw
+    tracker id, and never shows a name, a university ID or any personal data.
     """
     canvas = frame.copy()
     height, width = canvas.shape[:2]
     links = associations or {}
-    labels = subject_labels or {}
 
     person_boxes: dict[str, Detection] = {
         person.tracking_id: person for person in detections.persons if person.tracking_id
@@ -67,29 +116,24 @@ def annotate_frame(
     for person in detections.persons:
         x1, y1, x2, y2 = person.bbox.to_pixels(width, height)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), COLOR_PERSON, 1)
-        raw_id = person.tracking_id or ""
-        if labels:
-            subject = labels.get(raw_id) or "UNRESOLVED"
-            tag = f"{subject}  ({raw_id or '--'})  {person.confidence:.2f}"
-        else:
-            tag = f"PERSON {raw_id or '--'}  {person.confidence:.2f}"
-        _label(canvas, tag, (x1, max(14, y1)), COLOR_PERSON)
+        _label(
+            canvas,
+            person_caption(person, subject_labels),
+            (x1, max(14, y1)),
+            COLOR_PERSON,
+            scale=0.48 if subject_labels is not None else 0.42,
+        )
 
     for index, phone in enumerate(detections.phones):
         key = phone.tracking_id or f"idx{index}"
         association = links.get(key)
         x1, y1, x2, y2 = phone.bbox.to_pixels(width, height)
         color = COLOR_PHONE
-        caption = f"PHONE {phone.confidence:.2f}"
         if association and association.status is AssociationStatus.ASSOCIATED:
             color = COLOR_ASSOCIATED
-            caption = (
-                f"PHONE {phone.confidence:.2f} -> ID {association.person_tracking_id}"
-                f" ({association.confidence:.2f})"
-            )
         elif association and association.status is AssociationStatus.UNCERTAIN:
             color = COLOR_UNCERTAIN
-            caption = f"PHONE {phone.confidence:.2f} - UNCERTAIN ASSOCIATION"
+        caption = phone_caption(phone, association, subject_labels)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
         _label(canvas, caption, (x1, max(14, y1)), color)
 
@@ -115,6 +159,7 @@ def annotate_frame(
     cv2.rectangle(canvas, (0, 0), (width, 20), (18, 26, 44), -1)
     cv2.putText(canvas, header, (6, 14), FONT, 0.42, COLOR_TEXT, 1, cv2.LINE_AA)
     return canvas
+
 
 
 def encode_jpeg(frame, quality: int = 75) -> Optional[bytes]:
