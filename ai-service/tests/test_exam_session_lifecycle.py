@@ -137,8 +137,21 @@ class FakeRepository:
 
 
 class FakeCameraManager:
+    """Only what the lifecycle needs: active cameras + per-camera lifecycle locks."""
+
     def __init__(self, camera_ids: tuple[str, ...]) -> None:
         self.active = {camera_id: object() for camera_id in camera_ids}
+        self._locks: dict[str, threading.RLock] = {}
+        self.lock_order: list[str] = []
+
+    def lock(self, camera_id: str) -> threading.RLock:
+        existing = self._locks.get(camera_id)
+        if existing is None:
+            existing = threading.RLock()
+            self._locks[camera_id] = existing
+        self.lock_order.append(camera_id)
+        return existing
+
 
 
 def build(repository: FakeRepository, cameras: tuple[str, ...] = ("cam-1",)):
