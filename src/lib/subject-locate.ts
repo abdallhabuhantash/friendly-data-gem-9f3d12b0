@@ -68,10 +68,28 @@ export function normalizedBox(raw: unknown): NormalizedBox | null {
   return { x, y, width, height };
 }
 
+/** Deterministic anonymous label for a subject number. Never roster identity. */
+export function expectedSubjectLabel(subjectNumber: number): string {
+  return `S${String(subjectNumber).padStart(3, "0")}`;
+}
+
+const LIFECYCLES = ["active", "temporarily_lost", "lost", "ended"] as const;
+const ASSOCIATIONS = ["confirmed", "provisional", "unresolved", "conflict"] as const;
+
+const optionalEnum = (value: unknown, allowed: readonly string[]): boolean =>
+  value === undefined ||
+  value === null ||
+  (typeof value === "string" && allowed.includes(value));
+
 /**
- * Strict reply validation. The result must be about the requested session and
- * subject number, and a `located` answer must carry a camera and a valid box —
- * otherwise it is rejected rather than displayed optimistically.
+ * Strict reply validation — the contract is enforced, never repaired.
+ *
+ * The reply must be about exactly the requested session and subject number, and
+ * carry the deterministic anonymous label. A `located` answer must prove an
+ * ACTIVE + CONFIRMED subject with a camera, a real timestamp and valid
+ * normalized geometry. A non-located answer that carries a box is malformed and
+ * is REJECTED rather than sanitized, so a broken HTTP 200 can never highlight
+ * anyone.
  */
 export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
   if (typeof raw !== "object" || raw === null) return { ok: false, message: MALFORMED };
@@ -80,17 +98,28 @@ export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
   if (!isState(state)) return { ok: false, message: MALFORMED };
   if (body["exam_session_id"] !== target.examSessionId) return { ok: false, message: MALFORMED };
   if (body["subject_number"] !== target.subjectNumber) return { ok: false, message: MALFORMED };
-  const label =
-    typeof body["subject_label"] === "string" && body["subject_label"].trim() !== ""
-      ? body["subject_label"]
-      : `S${String(target.subjectNumber).padStart(3, "0")}`;
+  const label = expectedSubjectLabel(target.subjectNumber);
+  if (body["subject_label"] !== label) return { ok: false, message: MALFORMED };
+  const lifecycle = body["lifecycle"];
+  const association = body["association"];
+  if (!optionalEnum(lifecycle, LIFECYCLES)) return { ok: false, message: MALFORMED };
+  if (!optionalEnum(association, ASSOCIATIONS)) return { ok: false, message: MALFORMED };
   const camera = typeof body["camera_id"] === "string" ? body["camera_id"] : null;
   const lastSeenAt =
     typeof body["last_seen_at"] === "string" && !Number.isNaN(Date.parse(body["last_seen_at"]))
       ? body["last_seen_at"]
       : null;
-  const bbox = normalizedBox(body["bbox"]);
-  if (state === "located" && (bbox === null || camera === null)) {
+  const rawBbox = body["bbox"];
+  const bbox = normalizedBox(rawBbox);
+  if (state === "located") {
+    if (lifecycle !== "active" || association !== "confirmed") {
+      return { ok: false, message: MALFORMED };
+    }
+    if (camera === null || camera.trim() === "") return { ok: false, message: MALFORMED };
+    if (lastSeenAt === null) return { ok: false, message: MALFORMED };
+    if (bbox === null) return { ok: false, message: MALFORMED };
+  } else if (rawBbox !== null && rawBbox !== undefined) {
+    // A non-located state must never be accompanied by geometry.
     return { ok: false, message: MALFORMED };
   }
   return {
@@ -102,11 +131,11 @@ export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
       locateState: state,
       cameraId: camera,
       lastSeenAt,
-      // A non-located answer never carries a highlight, whatever was sent.
       bbox: state === "located" ? bbox : null,
     },
   };
 }
+
 
 /** Truthful operator wording for every possible locate answer. */
 export function locateStatusMessage(state: LocateState, label: string): string {
