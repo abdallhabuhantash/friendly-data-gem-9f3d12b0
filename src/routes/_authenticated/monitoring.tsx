@@ -200,7 +200,7 @@ function MonitoringPage() {
       />
       <div className="relative flex min-h-0 flex-1">
         <div
-          className={`${showCameras ? "absolute inset-y-0 left-0 z-50 block w-[270px] shadow-xl" : "hidden"} lg:block`}
+          className={`${showCameras ? "absolute inset-y-0 left-0 z-50 block w-full max-w-[270px] shadow-xl" : "hidden"} lg:block lg:w-[250px] lg:max-w-none lg:shrink-0`}
         >
           {activeRule ? (
             <CameraSidebar
@@ -236,33 +236,39 @@ function MonitoringPage() {
                 {selected ? `${selected.name} · ${selected.location}` : "No camera selected"}
               </span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
+              {/* Stop Locating always stays reachable; only its text collapses. */}
               {locateTarget && (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 px-2 font-mono text-[9px]"
+                  className="h-7 shrink-0 px-2 font-mono text-[9px]"
                   onClick={stopLocating}
+                  aria-label={`Stop locating ${expectedSubjectLabel(locateTarget.subjectNumber)}`}
                 >
-                  <X className="size-3" /> STOP LOCATING{" "}
-                  {expectedSubjectLabel(locateTarget.subjectNumber)}
+                  <X className="size-3" />
+                  <span className="hidden sm:inline">
+                    STOP LOCATING {expectedSubjectLabel(locateTarget.subjectNumber)}
+                  </span>
                 </Button>
               )}
               <Button
                 variant={mode === "single" ? "secondary" : "ghost"}
                 size="sm"
-                className="h-7 px-2 font-mono text-[9px]"
+                className="h-7 shrink-0 px-2 font-mono text-[9px]"
                 onClick={() => setMode("single")}
+                aria-label="Single camera view"
               >
-                <Monitor className="size-3" /> 1 VIEW
+                <Monitor className="size-3" /> <span className="hidden sm:inline">1 VIEW</span>
               </Button>
               <Button
                 variant={mode === "wall" ? "secondary" : "ghost"}
                 size="sm"
-                className="h-7 px-2 font-mono text-[9px]"
+                className="h-7 shrink-0 px-2 font-mono text-[9px]"
                 onClick={() => setMode("wall")}
+                aria-label="Camera wall view"
               >
-                <Grid2X2 className="size-3" /> WALL
+                <Grid2X2 className="size-3" /> <span className="hidden sm:inline">WALL</span>
               </Button>
               <Button
                 variant="ghost"
