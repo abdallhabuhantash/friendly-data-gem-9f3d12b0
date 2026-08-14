@@ -23,7 +23,7 @@ import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useRealtimeAttribution } from "@/hooks/use-realtime-attribution";
 import { useEventAttribution } from "@/hooks/use-subject-attribution";
 import { eventAttributionDisplay } from "@/lib/attribution-state";
-import { liveAlertEvent } from "@/lib/live-monitoring";
+import { clampWallPage, liveAlertEvent } from "@/lib/live-monitoring";
 import { useStreamHealth } from "@/hooks/use-stream-health";
 import { effectiveCameraStatus } from "@/lib/health";
 import { streamReadiness } from "@/lib/stream-health";
@@ -93,6 +93,8 @@ function MonitoringPage() {
   const [mode, setMode] = useState<"single" | "wall">("single");
   const [showCameras, setShowCameras] = useState(false);
   const [showEvents, setShowEvents] = useState(true);
+  // Wall pagination keeps simultaneous MJPEG connections bounded.
+  const [wallPage, setWallPage] = useState(1);
   useEffect(() => {
     // Keep the selection valid when cameras are added, archived or removed.
     if (cameras.length === 0) {
@@ -103,6 +105,11 @@ function MonitoringPage() {
   }, [cameras, selectedId]);
   const selected = cameras.find((camera) => camera.id === selectedId) ?? cameras[0];
   const activeRule = (rules.data ?? []).find((rule) => rule.enabled);
+  // A shrinking camera list can never leave the wall on a page that no longer
+  // exists (which would render an empty wall).
+  useEffect(() => {
+    setWallPage((page) => clampWallPage(page, cameras.length));
+  }, [cameras.length]);
   const selectCamera = (camera: Camera) => {
     setSelectedId(camera.id);
     setMode("single");
@@ -180,7 +187,7 @@ function MonitoringPage() {
   };
 
   return (
-    <div className="flex h-screen min-h-[640px] w-full flex-col overflow-hidden bg-background">
+    <div className="flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden bg-background">
       <SystemStatusBar
         {...(fleet.data ? { fleet: fleet.data } : {})}
         {...(eventsSummary.data ? { events: eventsSummary.data } : {})}
@@ -218,7 +225,7 @@ function MonitoringPage() {
             onClick={() => setShowCameras(false)}
           />
         )}
-        <main className="flex min-w-0 flex-1 flex-col p-2">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col p-2">
           <div className="grid h-9 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center border border-b-0 border-border bg-surface px-2">
             <div className="flex min-w-0 items-center gap-2">
               <span className="font-mono text-[9px] text-primary">LIVE MONITORING</span>
@@ -239,7 +246,6 @@ function MonitoringPage() {
                 </Button>
               )}
               <Button
-
                 variant={mode === "single" ? "secondary" : "ghost"}
                 size="sm"
                 className="h-7 px-2 font-mono text-[9px]"
@@ -291,7 +297,13 @@ function MonitoringPage() {
               locateStatus={locateStatus}
             />
           ) : (
-            <CameraWall cameras={cameras} readinessFor={readinessFor} onSelect={selectCamera} />
+            <CameraWall
+              cameras={cameras}
+              readinessFor={readinessFor}
+              onSelect={selectCamera}
+              page={wallPage}
+              onPageChange={setWallPage}
+            />
           )}
           {selected && (
             <CameraHealthStrip

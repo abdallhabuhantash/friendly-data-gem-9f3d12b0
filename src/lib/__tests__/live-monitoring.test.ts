@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { eventAttributionDisplay, type AttributionRead } from "@/lib/attribution-state";
 import {
   alertSubjectText,
+  cameraSourceLabel,
+  clampWallPage,
+  LIVE_ALERT_CLOCK_SKEW_TOLERANCE_MS,
+  MAX_WALL_STREAMS,
+  wallPageCameras,
+  wallPageCount,
   isLiveAlertEligible,
   liveAlertEvent,
   LIVE_ALERT_TTL_MS,
@@ -214,6 +220,71 @@ describe("live monitoring source contract", () => {
 
   it("Live Events keeps its own bounded scroll region", () => {
     expect(panel).toContain("min-h-0 flex-1 overflow-y-auto");
-    expect(page).toContain("h-screen");
+    expect(page).toContain("h-[100dvh]");
+    expect(page).not.toContain("min-h-[640px]");
+  });
+
+  it("A. the wall never mounts more streams than the connection bound", () => {
+    const cameras = Array.from({ length: 9 }, (_, index) => `c${index + 1}`);
+    expect(MAX_WALL_STREAMS).toBe(4);
+    expect(wallPageCameras(cameras, 1)).toEqual(["c1", "c2", "c3", "c4"]);
+    expect(wallPageCameras(cameras, 3)).toEqual(["c9"]);
+    expect(wallPageCameras(cameras, 2).length).toBeLessThanOrEqual(MAX_WALL_STREAMS);
+  });
+
+  it("B. wall pages are bounded and clamped", () => {
+    expect(wallPageCount(0)).toBe(1);
+    expect(wallPageCount(4)).toBe(1);
+    expect(wallPageCount(5)).toBe(2);
+    expect(clampWallPage(0, 9)).toBe(1);
+    expect(clampWallPage(99, 9)).toBe(3);
+    expect(clampWallPage(Number.NaN, 9)).toBe(1);
+  });
+
+  it("C. a shrunk camera list cannot leave the wall on a dead page", () => {
+    expect(wallPageCameras(["c1", "c2"], clampWallPage(3, 2))).toEqual(["c1", "c2"]);
+  });
+
+  it("D. a clearly future-dated event cannot pin the alert overlay open", () => {
+    const future = event({
+      detectedAt: new Date(NOW + LIVE_ALERT_CLOCK_SKEW_TOLERANCE_MS + 5_000).toISOString(),
+    });
+    expect(isLiveAlertEligible(future, "c1", NOW)).toBe(false);
+  });
+
+  it("E. small clock skew is tolerated", () => {
+    const skewed = event({ detectedAt: new Date(NOW + 1_000).toISOString() });
+    expect(isLiveAlertEligible(skewed, "c1", NOW)).toBe(true);
+  });
+
+  it("F. camera source labels never invent NVR involvement", () => {
+    expect(cameraSourceLabel("direct_camera")).toBe("DIRECT RTSP");
+    expect(cameraSourceLabel("nvr_channel")).toBe("NVR CHANNEL");
+    expect(cameraSourceLabel("demo")).toBe("DEMO");
+  });
+
+  it("G. no dead operator controls remain in Live Monitoring", () => {
+    expect(panel).not.toContain("Filter events");
+    expect(page).not.toMatch(/aria-label="(Pause|Record|Pan|Tilt|Zoom)/i);
+  });
+
+  it("H. camera sidebar states AI configuration truthfully", () => {
+    const sidebar = read("src/components/monitoring/CameraSidebar.tsx");
+    expect(sidebar).toContain("AI ENABLED");
+    expect(sidebar).toContain("AI OFF");
+    expect(sidebar).not.toContain("IP / NVR");
+  });
+
+  it("I. HUD zones stay separated so overlays cannot collide", () => {
+    const viewport = read("src/components/monitoring/MainMonitoringViewport.tsx");
+    expect(viewport).toContain("left-5 top-5");
+    expect(viewport).toContain("right-5 top-5");
+    expect(viewport).toContain("left-5 top-16");
+    expect(viewport).toContain("bottom-5 left-5");
+    expect(viewport).toContain("bottom-5 right-5");
+  });
+
+  it("J. main video region stays viewport-bounded", () => {
+    expect(page).toContain("min-h-0 min-w-0 flex-1 flex-col p-2");
   });
 });

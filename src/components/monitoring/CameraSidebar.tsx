@@ -3,6 +3,8 @@ import { Search, Video, Waves } from "lucide-react";
 import { useMemo, useState } from "react";
 import { StatusDot } from "@/components/common/StatusDot";
 import { effectiveCameraStatus, effectiveRecordingState } from "@/lib/health";
+import { cameraSourceLabel } from "@/lib/live-monitoring";
+
 import { cn } from "@/lib/utils";
 import type { AiRule, Camera, NvrStatus } from "@/types";
 
@@ -45,8 +47,9 @@ function CameraListItem({
           </div>
           <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{camera.location}</p>
           <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] uppercase text-muted-foreground">
+            {/* aiEnabled is configuration, not proof of current live inference. */}
             <span className={camera.aiEnabled ? "text-primary" : ""}>
-              AI {camera.aiEnabled ? "active" : "off"}
+              {camera.aiEnabled ? "AI ENABLED" : "AI OFF"}
             </span>
             <span className={recordingState === "active" ? "text-destructive" : ""}>
               {recordingState === "active"
@@ -56,6 +59,7 @@ function CameraListItem({
                   : "rec unknown"}
             </span>
           </div>
+
         </div>
         {camera.isDemo && (
           <span className="border border-warning/40 bg-warning/8 px-1 py-0.5 font-mono text-[8px] text-warning">
@@ -90,6 +94,12 @@ export function CameraSidebar({
       ),
     [cameras, filter],
   );
+  // Truthful source summary derived from the configured source types only.
+  const sourceLabel = useMemo(() => {
+    const labels = [...new Set(cameras.map((camera) => cameraSourceLabel(camera.sourceType)))];
+    return labels.length === 0 ? null : labels.join(" / ");
+  }, [cameras]);
+
   return (
     <aside className="flex min-h-0 w-full flex-col border-r border-sidebar-border bg-sidebar lg:w-[250px] lg:shrink-0">
       <div className="border-b border-sidebar-border p-3">
@@ -149,13 +159,19 @@ export function CameraSidebar({
           <dd className="text-foreground">
             {rule ? `${Math.round(rule.confidenceThreshold * 100)}%` : "—"}
           </dd>
-          <dt className="text-muted-foreground">AI cameras</dt>
+          <dt className="text-muted-foreground">AI enabled</dt>
           <dd className="text-foreground">{cameras.filter((camera) => camera.aiEnabled).length}</dd>
-          <dt className="text-muted-foreground">Source</dt>
-          <dd className="flex items-center gap-1 text-foreground">
-            <Video className="size-3" /> {cameras.length > 0 ? "IP / NVR" : "—"}
-          </dd>
+          {sourceLabel && (
+            <>
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="flex min-w-0 items-center gap-1 text-foreground">
+                <Video className="size-3 shrink-0" />
+                <span className="truncate">{sourceLabel}</span>
+              </dd>
+            </>
+          )}
         </dl>
+
       </div>
     </aside>
   );

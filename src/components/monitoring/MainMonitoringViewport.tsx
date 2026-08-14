@@ -1,4 +1,4 @@
-import { Cpu, Grid2X2, Maximize2, VideoOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cpu, Grid2X2, Maximize2, VideoOff } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { LiveStreamPlayer } from "@/components/common/LiveStreamPlayer";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,12 @@ import type { StreamReadiness } from "@/lib/stream-health";
 import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
 import { cn } from "@/lib/utils";
-import { viewportReadinessBadge } from "@/lib/live-monitoring";
+import {
+  clampWallPage,
+  viewportReadinessBadge,
+  wallPageCameras,
+  wallPageCount,
+} from "@/lib/live-monitoring";
 import type { EventAttributionDisplay } from "@/lib/attribution-state";
 import type { AiRule, Camera, DetectionEvent, NvrStatus } from "@/types";
 
@@ -77,11 +82,14 @@ export function MainMonitoringViewport({
       {locate && live && (
         <SubjectLocateOverlay box={locate.box} label={locate.label} image={imageSize} />
       )}
+      {/* HUD zone: below the top-left AI badge, so it can never collide with the
+          temporary top-center live alert. */}
       {locateStatus && (
-        <div className="pointer-events-none absolute left-1/2 top-14 z-40 -translate-x-1/2 border border-warning/60 bg-background/88 px-3 py-1 text-center font-mono text-[9px] uppercase text-warning backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-5 top-16 z-40 max-w-[min(60%,320px)] truncate border border-warning/60 bg-background/88 px-2 py-1 font-mono text-[9px] uppercase text-warning backdrop-blur-sm">
           {locateStatus}
         </div>
       )}
+
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 animate-surveillance-scan"
         style={{ background: "var(--scan-line)" }}
@@ -122,14 +130,16 @@ export function MainMonitoringViewport({
           <Maximize2 className="size-3.5" />
         </Button>
       </div>
-      <div className="absolute bottom-5 left-5 z-40 border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm">
-        <div className="flex items-center gap-2 font-mono text-[9px]">
-          <span className="text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
-          <span className="text-foreground">{camera.name}</span>
-          <span className="text-muted-foreground">{camera.location}</span>
+      {/* HUD zone bottom-left: camera identity + the ONE measured LIVE claim. */}
+      <div className="absolute bottom-5 left-5 z-40 max-w-[calc(100%-2.5rem)] border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm sm:max-w-[60%]">
+        <div className="flex min-w-0 items-center gap-2 font-mono text-[9px]">
+          <span className="shrink-0 text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
+          <span className="truncate text-foreground">{camera.name}</span>
+          <span className="hidden truncate text-muted-foreground sm:inline">{camera.location}</span>
           {/* The only LIVE claim in the HUD: measured stream readiness. */}
           <span
             className={cn(
+              "shrink-0",
               badge.tone === "success" && "text-success",
               badge.tone === "warning" && "text-warning",
               badge.tone === "error" && "text-destructive",
@@ -140,7 +150,9 @@ export function MainMonitoringViewport({
           </span>
         </div>
       </div>
-      <div className="absolute bottom-5 right-5 z-40 flex items-center gap-3 border border-primary/40 bg-background/82 px-3 py-1.5 font-mono text-[9px] backdrop-blur-sm">
+      {/* HUD zone bottom-right: lowest-priority metadata, reduced first on small
+          viewports so it can never overlap identity/status or Locate wording. */}
+      <div className="absolute bottom-5 right-5 z-40 hidden items-center gap-3 border border-primary/40 bg-background/82 px-3 py-1.5 font-mono text-[9px] backdrop-blur-sm sm:flex">
         <span
           className={cn(
             "flex items-center gap-1",
@@ -149,10 +161,11 @@ export function MainMonitoringViewport({
         >
           <Cpu className="size-3" /> AI
         </span>
-        <span>{camera.resolution}</span>
+        <span className="hidden md:inline">{camera.resolution}</span>
         <span>{stale ? "— FPS" : `${camera.fps} FPS`}</span>
         {camera.isDemo && <span className="text-warning">DEMO SOURCE</span>}
       </div>
+
     </div>
   );
 }
@@ -231,16 +244,30 @@ function Health({
   );
 }
 
+/**
+ * Bounded camera wall. At most MAX_WALL_STREAMS cameras are RENDERED at a time,
+ * so the browser can never open more simultaneous MJPEG connections than that.
+ * Cameras outside the current page are not mounted at all — no hidden players,
+ * no display:none preloading — so their stream lifecycles cancel through the
+ * existing LiveStreamPlayer/proxy cancellation path.
+ */
 export function CameraWall({
   cameras,
   onSelect,
   readinessFor,
+  page,
+  onPageChange,
 }: {
   cameras: Camera[];
   onSelect: (camera: Camera) => void;
   /** One shared page-level health result; each tile decides for itself. */
   readinessFor: (cameraId: string) => StreamReadiness;
+  page: number;
+  onPageChange: (page: number) => void;
 }) {
+  const pageCount = wallPageCount(cameras.length);
+  const current = clampWallPage(page, cameras.length);
+  const visible = wallPageCameras<Camera>(cameras, current);
   if (cameras.length === 0)
     return (
       <div className="grid min-h-0 flex-1 place-items-center border border-border bg-surface/40 font-mono text-[10px] uppercase text-muted-foreground">
@@ -248,37 +275,71 @@ export function CameraWall({
       </div>
     );
   return (
-    <div
-      className={cn(
-        "grid min-h-0 flex-1 gap-1 bg-background p-1",
-        cameras.length === 1 ? "grid-cols-1" : cameras.length <= 4 ? "grid-cols-2" : "grid-cols-3",
-      )}
-    >
-      {cameras.map((camera) => {
-        const readiness = readinessFor(camera.id);
-        return (
-          <button
-            key={camera.id}
-            type="button"
-            onClick={() => onSelect(camera)}
-            className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 gap-1 p-1",
+          visible.length === 1
+            ? "grid-cols-1"
+            : visible.length === 2
+              ? "grid-cols-1 sm:grid-cols-2"
+              : "grid-cols-1 sm:grid-cols-2 sm:grid-rows-2",
+        )}
+      >
+        {visible.map((camera) => {
+          const readiness = readinessFor(camera.id);
+          return (
+            <button
+              key={camera.id}
+              type="button"
+              onClick={() => onSelect(camera)}
+              className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+            >
+              <div className="hud-grid absolute inset-0 grid place-items-center">
+                <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
+              </div>
+              <div className="absolute inset-x-0 bottom-0 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 bg-background/85 px-2 py-1 font-mono text-[9px]">
+                <span className="truncate">
+                  CH{String(camera.channel).padStart(2, "0")} · {camera.name}
+                </span>
+                <span className={readiness.displayable ? "text-success" : "text-destructive"}>
+                  {readiness.displayable ? "LIVE" : readiness.label}
+                </span>
+              </div>
+              <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
+            </button>
+          );
+        })}
+      </div>
+      {pageCount > 1 && (
+        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border bg-surface px-2 font-mono text-[9px]">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 font-mono text-[9px]"
+            disabled={current <= 1}
+            onClick={() => onPageChange(current - 1)}
+            aria-label="Previous wall page"
           >
-            <div className="hud-grid absolute inset-0 grid place-items-center">
-              <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
-            </div>
-            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
-              <span className="truncate">
-                CH{String(camera.channel).padStart(2, "0")} · {camera.name}
-              </span>
-              <span className={readiness.displayable ? "text-success" : "text-destructive"}>
-                {readiness.displayable ? "LIVE" : readiness.label}
-              </span>
-            </div>
-            <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
-          </button>
-        );
-      })}
+            <ChevronLeft className="size-3" /> PREVIOUS
+          </Button>
+          <span className="text-muted-foreground">
+            PAGE {current} / {pageCount} · {visible.length} OF {cameras.length} CAMERAS LIVE
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 font-mono text-[9px]"
+            disabled={current >= pageCount}
+            onClick={() => onPageChange(current + 1)}
+            aria-label="Next wall page"
+          >
+            NEXT <ChevronRight className="size-3" />
+          </Button>
+        </div>
+      )}
     </div>
   );
+
 }
 
