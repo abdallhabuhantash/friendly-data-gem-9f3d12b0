@@ -22,9 +22,7 @@ import {
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useSubjectLocate } from "@/hooks/use-subject-locate";
 import {
-  locateCameraSelection,
-  locateHighlight,
-  locateStatusMessage,
+  locateView,
   parseLocateSearch,
 } from "@/lib/subject-locate";
 import type { Camera } from "@/types";
@@ -90,6 +88,7 @@ function MonitoringPage() {
     setMode("single");
     setShowCameras(false);
   };
+  const cameraIds = useMemo(() => cameras.map((camera) => camera.id), [cameras]);
   const selectedEvent = selected
     ? events.find((event) => event.cameraId === selected.id)
     : undefined;
