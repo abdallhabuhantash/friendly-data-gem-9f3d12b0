@@ -323,14 +323,24 @@ function MonitoringPage() {
             />
           )}
         </main>
+        {/* Click-away backdrop: above the camera, below the drawer. */}
+        {showEvents && (
+          <button
+            type="button"
+            aria-label="Close live events"
+            className="absolute inset-0 z-40 bg-background/70 xl:hidden"
+            onClick={() => setShowEvents(false)}
+          />
+        )}
         <div
-          className={`${showEvents ? "absolute inset-y-0 right-0 z-40 block w-[350px] shadow-xl" : "hidden"} xl:relative xl:block`}
+          className={`${showEvents ? "absolute inset-y-0 right-0 z-50 block w-full max-w-[350px] shadow-xl" : "hidden"} xl:relative xl:block xl:w-[350px] xl:max-w-none xl:shrink-0`}
         >
           <LiveEventPanel
             events={events}
             attribution={attribution}
             loading={eventsQuery.isLoading}
             error={eventsQuery.isError}
+            onClose={() => setShowEvents(false)}
           />
         </div>
       </div>
