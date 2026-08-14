@@ -35,14 +35,18 @@ export function LiveStreamPlayer({
     cameraId,
     initialStreamConnection,
   );
-  const ready = readiness.displayable;
+  // A camera switch is applied by an effect, so during the render right after
+  // the switch the reducer may still hold the PREVIOUS camera's lifecycle.
+  // Nothing from that lifecycle may be paired with the new camera id.
+  const lifecycleMatches = connection.cameraId === cameraId;
+  const ready = readiness.displayable && lifecycleMatches;
 
   // Authorization renewal stays on its own clock. The renewed ticket is kept
   // aside for the NEXT incarnation and never rewrites a healthy image's src.
   const ticket = useQuery({
     queryKey: ["stream-ticket", cameraId],
     queryFn: () => issueTicket({ data: { cameraId } }),
-    enabled: ready || connection.activeTicket !== null,
+    enabled: ready || (lifecycleMatches && connection.activeTicket !== null),
     refetchInterval: 4 * 60_000,
     retry: false,
   });
@@ -63,6 +67,7 @@ export function LiveStreamPlayer({
       dispatch({ type: "unready" });
       return;
     }
+    if (!lifecycleMatches) return;
     const available = latestTicketRef.current;
     if (!available) return;
     if (shouldOpenNow(connection, true)) {
@@ -79,9 +84,11 @@ export function LiveStreamPlayer({
       return () => clearTimeout(timer);
     }
     return;
-  }, [ready, authorizationFailed, connection, latestTicket]);
+  }, [ready, lifecycleMatches, authorizationFailed, connection, latestTicket]);
 
-  const mountedTicket = ready && !authorizationFailed ? connection.activeTicket : null;
+  // An active ticket may only ever be mounted for the camera it was issued for.
+  const mountedTicket =
+    ready && lifecycleMatches && !authorizationFailed ? connection.activeTicket : null;
 
   // No mounted stream means no intrinsic size either: stale dimensions would
   // misplace a Locate overlay over an object-cover image.
