@@ -297,6 +297,38 @@ class SupabaseRepository:
             payload["ended_at"] = ended_at.astimezone(timezone.utc).isoformat()
         self._client.table("exam_sessions").update(payload).eq("id", exam_session_id).execute()
 
+    def transition_exam_session(
+        self,
+        exam_session_id: str,
+        *,
+        expected_status: str,
+        status: str,
+        started_at: Optional[datetime] = None,
+        ended_at: Optional[datetime] = None,
+    ) -> bool:
+        """Compare-and-set lifecycle write: ``expected_status`` → ``status``.
+
+        Returns True only when THIS call transitioned the row. A concurrent
+        administrator action (or a duplicate retry) therefore cannot silently
+        overwrite a newer lifecycle state; the caller reports the conflict
+        instead of claiming success.
+        """
+        payload: dict[str, Any] = {"status": status}
+        if started_at is not None:
+            payload["started_at"] = started_at.astimezone(timezone.utc).isoformat()
+        if ended_at is not None:
+            payload["ended_at"] = ended_at.astimezone(timezone.utc).isoformat()
+        response = (
+            self._client.table("exam_sessions")
+            .update(payload)
+            .eq("id", exam_session_id)
+            .eq("status", expected_status)
+            .execute()
+        )
+        return bool(response.data)
+
+
+
     # --- anonymous subject state -----------------------------------------
     def existing_subject_rows(self, exam_session_id: str) -> dict[int, str]:
         response = (
