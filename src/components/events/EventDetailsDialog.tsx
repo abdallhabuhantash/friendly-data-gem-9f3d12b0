@@ -186,15 +186,21 @@ export function EventDetailsDialog({
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {attributionDisplay.rows.map((item) => (
-                      <Button
+                      <div
                         key={item.eventSubjectId || item.participantIndex}
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 text-[11px]"
-                        onClick={() => onResolveIdentity(item)}
+                        className="flex items-center gap-1.5"
                       >
-                        {item.resolution ? "Correct" : "Resolve"} {item.subjectLabel}
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => onResolveIdentity(item)}
+                        >
+                          {item.resolution ? "Correct" : "Resolve"} {item.subjectLabel}
+                        </Button>
+                        {/* Read-only locate: it never changes attribution. */}
+                        <LocateSubjectButton attribution={item} />
+                      </div>
                     ))}
                   </div>
                 )}
