@@ -1,5 +1,5 @@
 import { Cpu, Grid2X2, Maximize2, ScanLine, VideoOff } from "lucide-react";
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { LiveStreamPlayer } from "@/components/common/LiveStreamPlayer";
 import { Button } from "@/components/ui/button";
 import { displaySeverity } from "@/lib/event-presentation";
