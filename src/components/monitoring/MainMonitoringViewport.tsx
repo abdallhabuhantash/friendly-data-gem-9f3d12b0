@@ -25,14 +25,21 @@ export function MainMonitoringViewport({
   event,
   overlays,
   onToggleOverlays,
+  locate,
+  locateStatus,
 }: {
   camera: Camera;
   detections: DetectionOverlay[];
   event?: DetectionEvent;
   overlays: boolean;
   onToggleOverlays: () => void;
+  /** Verified highlight for one located anonymous subject, or null. */
+  locate?: { box: NormalizedBox; label: string } | null;
+  /** Truthful locate wording shown even when no position can be drawn. */
+  locateStatus?: string | null;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const fullscreen = () => {
     void frameRef.current?.requestFullscreen();
   };
