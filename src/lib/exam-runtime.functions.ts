@@ -18,17 +18,9 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const input = z.object({ examSessionId: z.string().uuid() });
 
-type AiRuntimeReply = {
-  armed: boolean;
-  examSessionId: string;
-  cameras: string[];
-  startedAt: string | null;
-  endedAt: string | null;
-};
+type Outcome = { ok: true; body: unknown } | { ok: false; message: string };
 
-async function aiServiceCall(
-  path: string,
-): Promise<{ ok: true; body: AiRuntimeReply } | { ok: false; message: string }> {
+async function aiServiceCall(path: string): Promise<Outcome> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: settings } = await supabaseAdmin
     .from("system_settings")
@@ -67,19 +59,11 @@ async function aiServiceCall(
       } catch {
         /* plain-text error body */
       }
+      // The service key never travels back to the browser, whatever is echoed.
+      detail = detail.split(serviceKey).join("[redacted]").slice(0, 400);
       return { ok: false, message: detail || `AI service returned ${response.status}.` };
     }
-    const parsed = (text === "" ? {} : JSON.parse(text)) as Record<string, unknown>;
-    return {
-      ok: true,
-      body: {
-        armed: parsed["armed"] === true,
-        examSessionId: String(parsed["exam_session_id"] ?? ""),
-        cameras: Array.isArray(parsed["cameras"]) ? (parsed["cameras"] as string[]) : [],
-        startedAt: typeof parsed["started_at"] === "string" ? parsed["started_at"] : null,
-        endedAt: typeof parsed["ended_at"] === "string" ? parsed["ended_at"] : null,
-      },
-    };
+    return { ok: true, body: text === "" ? {} : (JSON.parse(text) as unknown) };
   } catch {
     return { ok: false, message: "The AI service is unreachable." };
   }
@@ -107,7 +91,9 @@ export const startExamSession = createServerFn({ method: "POST" })
     await assertAdministrator(context);
     const result = await aiServiceCall(`/exam-sessions/${data.examSessionId}/arm`);
     if (!result.ok) throw new Error(`Monitoring was not started. ${result.message}`);
-    return result.body;
+    const parsed = parseStartReply(result.body, data.examSessionId);
+    if (!parsed.ok) throw new Error(`Monitoring was not confirmed. ${parsed.message}`);
+    return parsed.value;
   });
 
 export const endExamSession = createServerFn({ method: "POST" })
@@ -117,5 +103,8 @@ export const endExamSession = createServerFn({ method: "POST" })
     await assertAdministrator(context);
     const result = await aiServiceCall(`/exam-sessions/${data.examSessionId}/end`);
     if (!result.ok) throw new Error(`The session was not ended. ${result.message}`);
-    return result.body;
+    const parsed = parseEndReply(result.body, data.examSessionId);
+    if (!parsed.ok) throw new Error(`The end of the session was not confirmed. ${parsed.message}`);
+    return parsed.value;
   });
+
