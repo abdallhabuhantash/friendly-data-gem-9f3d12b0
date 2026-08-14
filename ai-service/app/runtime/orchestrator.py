@@ -1040,6 +1040,25 @@ class Orchestrator:
             }
 
 
+    def locate_subject(self, exam_session_id: str, subject_number: int) -> dict:
+        """Read-only locate of ONE existing anonymous subject.
+
+        No lifecycle transition, no allocation, no recovery: this only reports
+        what the registry already knows. It is deliberately consistent with the
+        inference path, so the per-camera lifecycle locks of the session are
+        held while the registries are read — the returned bounding box is a
+        complete, non-torn observation of one frame, never a predicted position.
+        A session that is not armed here reports ``not_armed`` instead of a
+        stale guess.
+        """
+        if self.subjects is None:
+            return locate_from_candidates(
+                exam_session_id, int(subject_number), armed=False
+            ).payload()
+        cameras = self.subjects.session_cameras(exam_session_id)
+        with self._drained_cameras(cameras):
+            return self.subjects.locate(exam_session_id, int(subject_number)).payload()
+
     def subject_status(self) -> dict:
         """Measured anonymous-subject diagnostics only."""
         if self.subjects is None:
