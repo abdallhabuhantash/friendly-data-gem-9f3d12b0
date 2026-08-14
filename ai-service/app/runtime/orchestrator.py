@@ -971,10 +971,13 @@ class Orchestrator:
     def end_exam_session(self, exam_session_id: str) -> dict:
         """End: ACTIVE → ENDED, with a real stop boundary and a safe rollback.
 
-        Ordering — suspend (no new subjects/tracks/attributions) → compare-and-set
-        ACTIVE→ENDED → close subjects once, flush, forget. If persistence fails
-        the previous ACTIVE ownership is restored and nothing is closed, so a
-        failed End can never permanently close a running exam session.
+        Ordering — lifecycle transition guard → acquire this session's per-camera
+        lifecycle locks in sorted order (drains any frame already inside the
+        state-mutating processing section and blocks later ones) → suspend
+        ownership → compare-and-set ACTIVE→ENDED → close subjects once, flush,
+        forget. If persistence fails the previous ACTIVE ownership is resumed and
+        nothing is closed, so a failed End can never permanently close a running
+        exam session. The camera locks are released only after the boundary.
         """
         with self._lifecycle_transition(exam_session_id):
             session = self.repository.exam_session(exam_session_id)
@@ -1001,34 +1004,41 @@ class Orchestrator:
                 )
 
             ended_at = datetime.now(timezone.utc)
-            suspended = (
-                self.subjects.suspend(exam_session_id) if self.subjects is not None else False
-            )
-            transitioned = False
-            try:
-                transitioned = self.repository.transition_exam_session(
-                    exam_session_id,
-                    expected_status="active",
-                    status="ended",
-                    ended_at=ended_at,
-                )
-            finally:
-                if not transitioned and suspended and self.subjects is not None:
-                    # The exam is still ACTIVE: give it its cameras back.
-                    self.subjects.resume(exam_session_id)
-            if not transitioned:
-                raise RuntimeError(
-                    "the exam session was not ended: monitoring is still active"
-                )
+            cameras = set(session.get("camera_ids") or ())
             if self.subjects is not None:
-                self.subjects.disarm(exam_session_id, ended_at=ended_at)
-                self.subject_publisher.flush()
-                self.subject_publisher.forget_session(exam_session_id)
+                cameras.update(self.subjects.session_cameras(exam_session_id))
+            with self._drained_cameras(cameras):
+                suspended = (
+                    self.subjects.suspend(exam_session_id)
+                    if self.subjects is not None
+                    else False
+                )
+                transitioned = False
+                try:
+                    transitioned = self.repository.transition_exam_session(
+                        exam_session_id,
+                        expected_status="active",
+                        status="ended",
+                        ended_at=ended_at,
+                    )
+                finally:
+                    if not transitioned and suspended and self.subjects is not None:
+                        # The exam is still ACTIVE: give it its cameras back.
+                        self.subjects.resume(exam_session_id)
+                if not transitioned:
+                    raise RuntimeError(
+                        "the exam session was not ended: monitoring is still active"
+                    )
+                if self.subjects is not None:
+                    self.subjects.disarm(exam_session_id, ended_at=ended_at)
+                    self.subject_publisher.flush()
+                    self.subject_publisher.forget_session(exam_session_id)
             return {
                 "armed": False,
                 "exam_session_id": exam_session_id,
                 "ended_at": ended_at.isoformat(),
             }
+
 
     def subject_status(self) -> dict:
         """Measured anonymous-subject diagnostics only."""
