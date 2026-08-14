@@ -1,4 +1,4 @@
-import { Cpu, Grid2X2, Maximize2, ScanLine, VideoOff } from "lucide-react";
+import { Cpu, Grid2X2, Maximize2, VideoOff } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { LiveStreamPlayer } from "@/components/common/LiveStreamPlayer";
 import { Button } from "@/components/ui/button";
@@ -13,10 +13,11 @@ import type { NormalizedBox } from "@/lib/subject-locate";
 import type { StreamReadiness } from "@/lib/stream-health";
 
 import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
-import { DetectionOverlayLayer } from "./DetectionOverlayLayer";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
 import { cn } from "@/lib/utils";
-import type { AiRule, Camera, DetectionEvent, DetectionOverlay, NvrStatus } from "@/types";
+import { viewportReadinessBadge } from "@/lib/live-monitoring";
+import type { EventAttributionDisplay } from "@/lib/attribution-state";
+import type { AiRule, Camera, DetectionEvent, NvrStatus } from "@/types";
 
 /**
  * The viewport renders the annotated MJPEG stream from the Python AI service.
@@ -25,19 +26,17 @@ import type { AiRule, Camera, DetectionEvent, DetectionOverlay, NvrStatus } from
  */
 export function MainMonitoringViewport({
   camera,
-  detections,
   event,
-  overlays,
-  onToggleOverlays,
+  eventAttribution,
   readiness,
   locate,
   locateStatus,
 }: {
   camera: Camera;
-  detections: DetectionOverlay[];
+  /** Only a currently active (non-expired) alert event, or undefined. */
   event?: DetectionEvent;
-  overlays: boolean;
-  onToggleOverlays: () => void;
+  /** Truthful anonymous subject presentation for the active alert event. */
+  eventAttribution?: EventAttributionDisplay;
   /** The ONE shared measured stream-readiness decision for this camera. */
   readiness: StreamReadiness;
   /** Verified highlight for one located anonymous subject, or null. */
@@ -62,6 +61,7 @@ export function MainMonitoringViewport({
   // Viewport, HUD and stream player share ONE truth: the stream is only called
   // live while the AI service currently measures fresh annotated frames.
   const live = readiness.displayable;
+  const badge = viewportReadinessBadge(readiness);
   return (
     <div
       ref={frameRef}
@@ -93,8 +93,11 @@ export function MainMonitoringViewport({
       <span className="pointer-events-none absolute right-3 top-3 z-20 size-9 border-r-2 border-t-2 border-primary/70" />
       <span className="pointer-events-none absolute bottom-3 left-3 z-20 size-9 border-b-2 border-l-2 border-primary/70" />
       <span className="pointer-events-none absolute bottom-3 right-3 z-20 size-9 border-b-2 border-r-2 border-primary/70" />
-      <DetectionOverlayLayer detections={detections} visible={overlays && live} />
-      <LiveAlertOverlay {...(event ? { event } : {})} camera={camera} />
+      <LiveAlertOverlay
+        {...(event ? { event } : {})}
+        {...(eventAttribution ? { attribution: eventAttribution } : {})}
+        camera={camera}
+      />
       <div className="absolute left-5 top-5 z-40 flex items-center gap-2 border border-primary/40 bg-background/82 px-2 py-1.5 backdrop-blur-sm">
         <span
           className={cn(
@@ -109,21 +112,9 @@ export function MainMonitoringViewport({
               ? "AI ANALYSIS ENABLED"
               : "AI ANALYSIS ENABLED · NO LIVE FRAMES"}
         </span>
-        <span className="border-l border-border pl-2 font-mono text-[9px] text-foreground">
-          {detections.length} DETECTIONS
-        </span>
       </div>
 
       <div className="absolute right-5 top-5 z-40 flex gap-1">
-        <Button
-          variant="outline"
-          size="icon"
-          className="size-8 bg-background/80"
-          onClick={onToggleOverlays}
-          aria-label="Toggle AI overlays"
-        >
-          <ScanLine className={cn("size-3.5", overlays && "text-primary")} />
-        </Button>
         <Button
           variant="outline"
           size="icon"
@@ -139,8 +130,16 @@ export function MainMonitoringViewport({
           <span className="text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
           <span className="text-foreground">{camera.name}</span>
           <span className="text-muted-foreground">{camera.location}</span>
-          <span className={offline ? "text-muted-foreground" : "text-destructive"}>
-            {offline ? "○ OFFLINE" : status === "degraded" ? "◐ DEGRADED" : "● LIVE"}
+          {/* The only LIVE claim in the HUD: measured stream readiness. */}
+          <span
+            className={cn(
+              badge.tone === "success" && "text-success",
+              badge.tone === "warning" && "text-warning",
+              badge.tone === "error" && "text-destructive",
+              badge.tone === "muted" && "text-muted-foreground",
+            )}
+          >
+            {badge.text}
           </span>
         </div>
       </div>
