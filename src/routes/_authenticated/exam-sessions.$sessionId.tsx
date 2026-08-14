@@ -268,12 +268,25 @@ function Overview({
       />
       <Fact
         label="Started at"
-        value={session.startedAt ? new Date(session.startedAt).toLocaleString() : "Not started"}
+        value={
+          session.startedAt
+            ? new Date(session.startedAt).toLocaleString()
+            : session.status === "ended"
+              ? "Not recorded"
+              : "Not started"
+        }
       />
       <Fact
         label="Ended at"
-        value={session.endedAt ? new Date(session.endedAt).toLocaleString() : "—"}
+        value={
+          session.endedAt
+            ? new Date(session.endedAt).toLocaleString()
+            : session.status === "ended"
+              ? "Not recorded"
+              : "—"
+        }
       />
+
       <p className="sm:col-span-2 lg:col-span-3 text-[11px] text-muted-foreground">
         Subject identity (S001, S002, …) and monitoring arming are not part of this configuration
         step. Invigilator names are metadata; the system performs no facial or biometric
