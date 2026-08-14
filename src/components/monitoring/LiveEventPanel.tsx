@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Filter, Image as ImageIcon } from "lucide-react";
+import { AlertTriangle, Image as ImageIcon } from "lucide-react";
 import { AssociationBadge, StatusBadge } from "@/components/common/EventBadges";
 import { Button } from "@/components/ui/button";
 import { useEventSnapshot } from "@/hooks/use-monitoring";
