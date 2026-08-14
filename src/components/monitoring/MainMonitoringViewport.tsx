@@ -42,6 +42,10 @@ export function MainMonitoringViewport({
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  const onImageSize = useCallback(
+    (size: { width: number; height: number } | null) => setImageSize(size),
+    [],
+  );
   const fullscreen = () => {
     void frameRef.current?.requestFullscreen();
   };
