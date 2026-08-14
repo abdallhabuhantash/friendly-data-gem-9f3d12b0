@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from .geometry import BBox
 from .session_subjects import (
