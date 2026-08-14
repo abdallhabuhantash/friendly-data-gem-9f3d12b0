@@ -1,4 +1,4 @@
-import { Cpu, Grid2X2, Maximize2, VideoOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Cpu, Grid2X2, Maximize2, VideoOff } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { LiveStreamPlayer } from "@/components/common/LiveStreamPlayer";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,12 @@ import type { StreamReadiness } from "@/lib/stream-health";
 import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
 import { cn } from "@/lib/utils";
-import { viewportReadinessBadge } from "@/lib/live-monitoring";
+import {
+  clampWallPage,
+  viewportReadinessBadge,
+  wallPageCameras,
+  wallPageCount,
+} from "@/lib/live-monitoring";
 import type { EventAttributionDisplay } from "@/lib/attribution-state";
 import type { AiRule, Camera, DetectionEvent, NvrStatus } from "@/types";
 
@@ -262,7 +267,7 @@ export function CameraWall({
 }) {
   const pageCount = wallPageCount(cameras.length);
   const current = clampWallPage(page, cameras.length);
-  const visible = wallPageCameras(cameras, current);
+  const visible = wallPageCameras<Camera>(cameras, current);
   if (cameras.length === 0)
     return (
       <div className="grid min-h-0 flex-1 place-items-center border border-border bg-surface/40 font-mono text-[10px] uppercase text-muted-foreground">
