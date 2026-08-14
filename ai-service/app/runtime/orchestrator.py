@@ -14,7 +14,7 @@ import time
 from contextlib import ExitStack, contextmanager
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from ..ai.association import associate
 from ..ai.detector import YoloDetector
