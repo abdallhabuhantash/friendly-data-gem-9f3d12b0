@@ -26,7 +26,9 @@ export function LiveStreamPlayer({
   // back online gets another attempt instead of staying blank forever.
   useEffect(() => {
     setFailed(false);
-  }, [cameraId, offline]);
+    // A stale frame size would misplace an overlay on the next camera.
+    onImageSize?.(null);
+  }, [cameraId, offline, onImageSize]);
 
   const ticket = useQuery({
     queryKey: ["stream-ticket", cameraId],
