@@ -625,7 +625,11 @@ class Orchestrator:
         # Anonymous subject identity is derived from the SAME observation view and
         # is completely independent of rule configuration: it never creates
         # events and never influences Task 1 thresholds.
-        subject_labels: dict[str, str] = {}
+        # `None` = anonymous subject mode is not active for this frame (no armed
+        # exam context, or subject processing failed). `{}` = active but no track
+        # is safely owned, which the renderer shows as UNRESOLVED. Labels are
+        # never carried over from a previous frame.
+        subject_labels: Optional[dict[str, str]] = None
         subject_result = None
         if self.subjects is not None:
             try:
@@ -636,6 +640,7 @@ class Orchestrator:
                 logger.warning(
                     "Anonymous subject tracking failed for one frame: %s", type(exc).__name__
                 )
+
 
         annotated = annotate_frame(
             frame,
