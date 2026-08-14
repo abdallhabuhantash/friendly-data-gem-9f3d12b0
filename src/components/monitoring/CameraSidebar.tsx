@@ -92,6 +92,12 @@ export function CameraSidebar({
       ),
     [cameras, filter],
   );
+  // Truthful source summary derived from the configured source types only.
+  const sourceLabel = useMemo(() => {
+    const labels = [...new Set(cameras.map((camera) => cameraSourceLabel(camera.sourceType)))];
+    return labels.length === 0 ? null : labels.join(" / ");
+  }, [cameras]);
+
   return (
     <aside className="flex min-h-0 w-full flex-col border-r border-sidebar-border bg-sidebar lg:w-[250px] lg:shrink-0">
       <div className="border-b border-sidebar-border p-3">
