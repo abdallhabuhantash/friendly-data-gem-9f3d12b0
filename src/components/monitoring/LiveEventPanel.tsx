@@ -133,13 +133,12 @@ export function LiveEventPanel({
           <span className="font-mono text-[9px] text-primary">{pending} NEW</span>
         </div>
         <div className="flex">
-          <Button variant="ghost" size="icon" className="size-7" aria-label="Filter events">
-            <Filter className="size-3.5" />
-          </Button>
+          {/* No filter control here: a dead operator control is worse than none. */}
           <Button asChild variant="ghost" size="sm" className="h-7 px-2 font-mono text-[9px]">
             <Link to="/events">VIEW ALL</Link>
           </Button>
         </div>
+
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {events.length === 0 && (
