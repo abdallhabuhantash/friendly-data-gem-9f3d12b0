@@ -324,3 +324,30 @@ def test_runtime_locate_without_an_explicit_clock_uses_real_time():
     for index in range(3):
         subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
     assert subjects.locate("session-1", 1).locate_state is LocateState.UNAVAILABLE
+
+
+def test_an_empty_connectivity_map_means_no_connected_owning_camera():
+    """{} is a measured fact: there are no active workers at all."""
+    result = locate_from_candidates(
+        "s1",
+        1,
+        armed=True,
+        candidates=[("cam-1", snapshot())],
+        now=at(2.1),  # the observation is still fresh
+        max_observation_age_seconds=CONFIG.lost_after_seconds,
+        camera_connectivity={},
+    )
+    assert result.locate_state is LocateState.UNAVAILABLE
+    assert result.bbox is None
+
+
+def test_runtime_forwards_an_empty_connectivity_map_instead_of_dropping_it():
+    subjects = runtime()
+    subjects.arm(ArmedSession("session-1", ("cam-1",)))
+    for index in range(3):
+        subjects.observe(frame("cam-1", "7", BOX, at(index * 0.2)))
+    result = subjects.locate("session-1", 1, now=at(0.5), camera_connectivity={})
+    assert result.locate_state is LocateState.UNAVAILABLE
+    assert result.bbox is None
+    # Only None means "connectivity unknown".
+    assert subjects.locate("session-1", 1, now=at(0.5)).locate_state is LocateState.LOCATED

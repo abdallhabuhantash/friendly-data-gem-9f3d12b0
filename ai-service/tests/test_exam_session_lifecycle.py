@@ -611,3 +611,24 @@ def test_locate_of_an_unknown_number_never_allocates_one():
     assert payload["locate_state"] == "not_found"
     assert payload["bbox"] is None
     assert runtime.snapshots("session-1") == ()
+
+
+def test_locate_with_no_active_camera_workers_can_never_be_located():
+    """No active workers => the owning camera is not connected, so no box."""
+    repo = FakeRepository({"session-1": session_row("ready")})
+    orchestrator, runtime = build(repo)
+    orchestrator.arm_exam_session("session-1")
+    now = datetime.now(timezone.utc)
+    for index in range(4):
+        runtime.observe(
+            frame("cam-1", "raw-a", LEFT, now - timedelta(seconds=0.6 - index * 0.2))
+        )
+    assert runtime.locate("session-1", 1).locate_state.value == "located"
+
+    orchestrator.cameras.active.clear()
+    payload = orchestrator.locate_subject("session-1", 1)
+
+    assert payload["locate_state"] == "unavailable"
+    assert payload["bbox"] is None
+    # Still purely observational.
+    assert [item.subject_number for item in runtime.snapshots("session-1")] == [1]
