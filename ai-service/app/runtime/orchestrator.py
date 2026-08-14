@@ -34,6 +34,7 @@ from ..domain.event_attribution import attribute_event_subjects
 from ..domain.geometry import BBox
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import MotionState, RestoredSubject
+from ..domain.subject_locate import locate_from_candidates
 
 
 
