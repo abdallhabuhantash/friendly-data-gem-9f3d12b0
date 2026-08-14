@@ -198,6 +198,13 @@ class Orchestrator:
         self._control: Optional[threading.Thread] = None
         self._inference_fps: dict[str, float] = {}
         self._frame_gate = FrameGate()
+        # Explicit Start/End versus automatic reconciliation: the lock serialises
+        # the two, the set names the session currently transitioning so a sync
+        # pass reached re-entrantly can neither disarm nor re-arm it halfway.
+        # Camera inference never takes this lock.
+        self._lifecycle_lock = threading.RLock()
+        self._lifecycle_transitions: set[str] = set()
+
         # Stream-incarnation accounting: the generation each camera's inference
         # loop has initialised, plus per-incarnation counters.
         self._seen_generation: dict[str, int] = {}
