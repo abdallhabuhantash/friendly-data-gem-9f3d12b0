@@ -104,6 +104,22 @@ class SubjectRuntime:
 
     # ---------------------------------------------------------------- arming
 
+    def owner_of(self, camera_id: str) -> Optional[str]:
+        """Which armed exam session currently owns a camera, if any."""
+        with self._lock:
+            return self._camera_sessions.get(camera_id)
+
+    def conflicting_cameras(
+        self, exam_session_id: str, camera_ids: Iterable[str]
+    ) -> tuple[str, ...]:
+        """Cameras already owned by a DIFFERENT armed exam session."""
+        with self._lock:
+            return tuple(
+                camera_id
+                for camera_id in camera_ids
+                if self._camera_sessions.get(camera_id) not in (None, exam_session_id)
+            )
+
     def arm(
         self,
         session: ArmedSession,
@@ -117,12 +133,27 @@ class SubjectRuntime:
         published LAST, inside the same lock that reserved the numbers and
         restored the subjects. There is therefore no window in which a frame
         can enter an empty registry for a session that already owns S-numbers.
+
+        A camera owned by another armed session is never stolen: the whole
+        arming attempt is rejected with ``CameraOwnershipConflict`` and no
+        runtime state changes.
         """
         with self._lock:
             if session.exam_session_id in self._sessions:
                 return
-            state = _SessionState(session, self._config, self._number_allocator)
             cameras = tuple(session.camera_ids)
+            stolen = tuple(
+                camera_id
+                for camera_id in cameras
+                if self._camera_sessions.get(camera_id)
+                not in (None, session.exam_session_id)
+            )
+            if stolen:
+                raise CameraOwnershipConflict(
+                    "camera(s) %s are already monitored by another active exam session"
+                    % ", ".join(stolen)
+                )
+            state = _SessionState(session, self._config, self._number_allocator)
             grouped: dict[str, list[RestoredSubject]] = {}
             for camera_id, subject in restored:
                 target = camera_id if camera_id in cameras else (cameras[0] if cameras else None)
@@ -139,6 +170,7 @@ class SubjectRuntime:
             self._sessions[session.exam_session_id] = state
             for camera_id in cameras:
                 self._camera_sessions[camera_id] = session.exam_session_id
+
         for camera_id, (registry, events) in events_by_camera.items():
             if events:
                 self._publisher.record_events(
