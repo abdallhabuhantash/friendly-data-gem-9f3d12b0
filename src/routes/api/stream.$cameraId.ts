@@ -40,11 +40,31 @@ export const Route = createFileRoute("/api/stream/$cameraId")({
         if (serviceKey) headers["X-Service-Key"] = serviceKey;
 
         try {
-          const upstream = await fetch(`${base}/stream/${params.cameraId}`, { headers });
+          // The downstream (browser) request signal is tied to the upstream
+          // fetch AND to the response body: when the operator switches camera,
+          // leaves Live Monitoring or the connection closes, the upstream Python
+          // MJPEG request is aborted instead of being left orphaned.
+          const upstream = await fetch(`${base}/stream/${params.cameraId}`, {
+            headers,
+            signal: request.signal,
+          });
           if (!upstream.ok || !upstream.body) {
             return new Response("Stream unavailable", { status: 404 });
           }
-          return new Response(upstream.body, {
+          const body = upstream.body;
+          if (request.signal.aborted) {
+            void body.cancel().catch(() => {});
+            return new Response("Stream cancelled", { status: 499 });
+          }
+          request.signal.addEventListener(
+            "abort",
+            () => {
+              // Progressive streaming is preserved; only the pipe is torn down.
+              void body.cancel().catch(() => {});
+            },
+            { once: true },
+          );
+          return new Response(body, {
             status: 200,
             headers: {
               "content-type":
@@ -55,6 +75,7 @@ export const Route = createFileRoute("/api/stream/$cameraId")({
         } catch {
           return new Response("Stream unreachable", { status: 404 });
         }
+
       },
     },
   },
