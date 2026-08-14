@@ -32,6 +32,11 @@ from ..ai.subject_registry import ExamSubjectRegistry
 logger = logging.getLogger(__name__)
 
 
+class CameraOwnershipConflict(ValueError):
+    """One physical camera cannot serve two armed exam sessions at once."""
+
+
+
 @dataclass(frozen=True, slots=True)
 class ArmedSession:
     """An exam session that is armed for monitoring right now."""
