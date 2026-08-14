@@ -291,3 +291,56 @@ function Fact({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+/**
+ * Start and End are irreversible operational boundaries, so both go through an
+ * explicit confirmation that states what will and will not happen.
+ */
+function ConfirmAction({
+  label,
+  icon,
+  title,
+  body,
+  confirmLabel,
+  pending,
+  onConfirm,
+  variant = "default",
+}: {
+  label: string;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  pending: boolean;
+  onConfirm: () => Promise<void>;
+  variant?: "default" | "destructive";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => (pending ? null : setOpen(next))}>
+      <Button size="sm" variant={variant} disabled={pending} onClick={() => setOpen(true)}>
+        {icon}
+        {pending ? "Working…" : label}
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{body}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={pending}
+            onClick={async (event) => {
+              event.preventDefault();
+              await onConfirm();
+              setOpen(false);
+            }}
+          >
+            {pending ? "Working…" : confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
