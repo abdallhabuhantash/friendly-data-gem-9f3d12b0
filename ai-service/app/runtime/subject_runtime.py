@@ -27,6 +27,8 @@ from ..domain.session_subjects import (
     SubjectSnapshot,
 )
 
+from ..domain.subject_locate import SubjectLocation, locate_from_candidates
+
 from ..ai.subject_registry import ExamSubjectRegistry
 
 logger = logging.getLogger(__name__)
