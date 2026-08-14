@@ -823,6 +823,24 @@ class Orchestrator:
             finally:
                 self._lifecycle_transitions.discard(exam_session_id)
 
+    @contextmanager
+    def _drained_cameras(self, camera_ids: Iterable[str]):
+        """Holds the EXISTING per-camera lifecycle locks of one exam session.
+
+        The camera inference path mutates subject state, attribution and event
+        publication inside ``cameras.lock(camera_id)``. Acquiring those same
+        locks here makes the caller wait for any frame that is already inside
+        that section (in-flight frames are drained, never discarded), and keeps
+        later frames of those cameras out of it while the lock is held.
+        Deterministic sorted order avoids deadlocks; unrelated cameras keep
+        running.
+        """
+        with ExitStack() as stack:
+            for camera_id in sorted(set(camera_ids)):
+                stack.enter_context(self.cameras.lock(camera_id))
+            yield
+
+
     def _preflight_arm(self, exam_session_id: str) -> tuple[dict, str, tuple[str, ...]]:
         """Everything checkable BEFORE any subject ownership is exposed."""
         session = self.repository.exam_session(exam_session_id)
