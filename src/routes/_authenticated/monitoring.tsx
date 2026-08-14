@@ -92,7 +92,10 @@ function MonitoringPage() {
   const [selectedId, setSelectedId] = useState("");
   const [mode, setMode] = useState<"single" | "wall">("single");
   const [showCameras, setShowCameras] = useState(false);
-  const [showEvents, setShowEvents] = useState(true);
+  // Below xl, Live Events is an overlay drawer: it must start CLOSED so it can
+  // never cover the camera before the operator asks for it. At xl and above the
+  // panel is part of the normal layout (xl:relative xl:block) regardless.
+  const [showEvents, setShowEvents] = useState(false);
   // Wall pagination keeps simultaneous MJPEG connections bounded.
   const [wallPage, setWallPage] = useState(1);
   useEffect(() => {
