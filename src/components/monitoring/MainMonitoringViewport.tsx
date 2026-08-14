@@ -67,9 +67,18 @@ export function MainMonitoringViewport({
             <span className="font-mono text-[10px] uppercase">Camera offline · No signal</span>
           </div>
         ) : (
-          <LiveStreamPlayer cameraId={camera.id} offline={false} />
+          <LiveStreamPlayer cameraId={camera.id} offline={false} onImageSize={onImageSize} />
         )}
       </div>
+      {/* Only a verified, currently observed subject is ever highlighted. */}
+      {locate && !offline && (
+        <SubjectLocateOverlay box={locate.box} label={locate.label} image={imageSize} />
+      )}
+      {locateStatus && (
+        <div className="pointer-events-none absolute left-1/2 top-14 z-40 -translate-x-1/2 border border-warning/60 bg-background/88 px-3 py-1 text-center font-mono text-[9px] uppercase text-warning backdrop-blur-sm">
+          {locateStatus}
+        </div>
+      )}
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 animate-surveillance-scan"
         style={{ background: "var(--scan-line)" }}
