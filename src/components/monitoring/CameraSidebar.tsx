@@ -3,6 +3,8 @@ import { Search, Video, Waves } from "lucide-react";
 import { useMemo, useState } from "react";
 import { StatusDot } from "@/components/common/StatusDot";
 import { effectiveCameraStatus, effectiveRecordingState } from "@/lib/health";
+import { cameraSourceLabel } from "@/lib/live-monitoring";
+
 import { cn } from "@/lib/utils";
 import type { AiRule, Camera, NvrStatus } from "@/types";
 
