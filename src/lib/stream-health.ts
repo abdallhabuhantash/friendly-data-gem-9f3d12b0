@@ -69,6 +69,21 @@ const readiness = (state: StreamState): StreamReadiness => ({
  * The single readiness decision shared by the viewport, the HUD and every wall
  * tile. `health` is the shared page-level poll result, not a per-camera one.
  */
+/**
+ * Maximum age of the last SUCCESSFULLY COMPLETED stream-health reply that may
+ * still back a LIVE claim. With a ~2s poll cadence this leaves room for one
+ * missed round trip; beyond it the cached answer is treated as unknown, so a
+ * permanently hung `/status` request can never preserve LIVE indefinitely.
+ */
+export const STREAM_HEALTH_MAX_AGE_MS = 5_000;
+
+/**
+ * The single readiness decision shared by the viewport, the HUD and every wall
+ * tile. `health` is the shared page-level poll result, not a per-camera one.
+ *
+ * Freshness is decided by the AGE of the last completed reply, never by whether
+ * a refetch happens to be in flight: a normal 2s poll must not blank a stream.
+ */
 export function streamReadiness(input: {
   cameraId: string;
   /** Effective (heartbeat-aware) database camera status says the camera is down. */
@@ -78,10 +93,21 @@ export function streamReadiness(input: {
   /** A failed or not-yet-completed current read must never keep a LIVE claim. */
   healthFailed: boolean;
   healthPending: boolean;
+  /** When the last successful reply completed (React Query `dataUpdatedAt`). */
+  healthUpdatedAt?: number;
+  /** Measured "now"; injected so the deadline is deterministically testable. */
+  now?: number;
 }): StreamReadiness {
   if (input.cameraOffline) return readiness("camera_offline");
   if (input.healthFailed || input.healthPending) return readiness("awaiting_service");
   if (!input.health || !input.health.ok) return readiness("awaiting_service");
+  const updatedAt = input.healthUpdatedAt;
+  if (updatedAt !== undefined) {
+    const now = input.now ?? Date.now();
+    if (!(updatedAt > 0) || now - updatedAt > STREAM_HEALTH_MAX_AGE_MS) {
+      return readiness("awaiting_service");
+    }
+  }
   const entry = input.health.cameras.find((camera) => camera.id === input.cameraId);
   if (!entry) return readiness("awaiting_service");
   if (!entry.connected) return readiness("camera_offline");

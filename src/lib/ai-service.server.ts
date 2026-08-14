@@ -12,6 +12,13 @@ export type AiServiceOutcome = { ok: true; body: unknown } | { ok: false; messag
 export async function aiServiceCall(
   path: string,
   method: "GET" | "POST" = "POST",
+  /**
+   * Optional bounded deadline in milliseconds. Used ONLY by the fast local
+   * `/status` health poll: a hung status request must resolve as "health
+   * unavailable" instead of hanging forever. Exam arm/end/locate calls keep
+   * their unbounded behaviour.
+   */
+  timeoutMs?: number,
 ): Promise<AiServiceOutcome> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data: settings } = await supabaseAdmin
@@ -42,6 +49,7 @@ export async function aiServiceCall(
     const response = await fetch(`${base}${path}`, {
       method,
       headers: { "X-Service-Key": serviceKey },
+      ...(timeoutMs !== undefined ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
     const text = await response.text();
     if (!response.ok) {
