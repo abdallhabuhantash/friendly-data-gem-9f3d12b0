@@ -524,7 +524,14 @@ class SubjectRuntime:
             candidates=candidates,
             now=now or datetime.now(timezone.utc),
             max_observation_age_seconds=freshness,
-            **({"camera_connectivity": camera_connectivity} if camera_connectivity else {}),
+            # An EMPTY mapping is a measured fact: no active camera workers, so
+            # the owning camera is absent from the known fleet. Only ``None``
+            # means "connectivity unknown" and is therefore not forwarded.
+            **(
+                {"camera_connectivity": camera_connectivity}
+                if camera_connectivity is not None
+                else {}
+            ),
         )
 
 

@@ -99,6 +99,21 @@ describe("locate reply validation", () => {
     expect(parseLocateReply(reply({ association: "probably" }), TARGET).ok).toBe(false);
   });
 
+  it("requires an explicit bbox: null on every non-located state", () => {
+    for (const state of ["unavailable", "temporarily_lost", "lost", "ended", "not_found", "ambiguous", "unresolved", "provisional", "conflict", "not_armed"]) {
+      const base = { locate_state: state, lifecycle: null, association: null, camera_id: null, last_seen_at: null };
+      expect(parseLocateReply(reply({ ...base, bbox: null }), TARGET).ok).toBe(true);
+      const missing = reply({ ...base });
+      delete (missing as Record<string, unknown>)["bbox"];
+      expect(parseLocateReply(missing, TARGET).ok).toBe(false);
+      expect(parseLocateReply(reply({ ...base, bbox: undefined }), TARGET).ok).toBe(false);
+      expect(
+        parseLocateReply(reply({ ...base, bbox: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }), TARGET).ok,
+      ).toBe(false);
+      expect(parseLocateReply(reply({ ...base, bbox: {} }), TARGET).ok).toBe(false);
+    }
+  });
+
   it("requires a real observation timestamp for a located answer", () => {
     expect(parseLocateReply(reply({ last_seen_at: null }), TARGET).ok).toBe(false);
     expect(parseLocateReply(reply({ last_seen_at: "yesterday" }), TARGET).ok).toBe(false);
