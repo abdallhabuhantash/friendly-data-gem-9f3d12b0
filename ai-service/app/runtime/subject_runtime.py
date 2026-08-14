@@ -386,9 +386,26 @@ class SubjectRuntime:
             if state is not None:
                 state.reserve(highest_number)
 
+    def session_cameras(self, exam_session_id: str) -> tuple[str, ...]:
+        """Cameras this session is armed on (assigned + currently owned).
+
+        Used by the End stop boundary to know which per-camera lifecycle locks
+        must be drained; a suspended session still reports its assigned cameras.
+        """
+        with self._lock:
+            state = self._sessions.get(exam_session_id)
+            cameras = set(state.session.camera_ids) if state is not None else set()
+            cameras.update(
+                camera_id
+                for camera_id, owner in self._camera_sessions.items()
+                if owner == exam_session_id
+            )
+            return tuple(sorted(cameras))
+
     def is_armed(self, exam_session_id: str) -> bool:
         with self._lock:
             return exam_session_id in self._sessions
+
 
     @property
     def armed_session_ids(self) -> tuple[str, ...]:
