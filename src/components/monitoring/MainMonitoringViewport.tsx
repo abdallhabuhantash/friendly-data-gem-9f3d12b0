@@ -125,14 +125,16 @@ export function MainMonitoringViewport({
           <Maximize2 className="size-3.5" />
         </Button>
       </div>
-      <div className="absolute bottom-5 left-5 z-40 border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm">
-        <div className="flex items-center gap-2 font-mono text-[9px]">
-          <span className="text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
-          <span className="text-foreground">{camera.name}</span>
-          <span className="text-muted-foreground">{camera.location}</span>
+      {/* HUD zone bottom-left: camera identity + the ONE measured LIVE claim. */}
+      <div className="absolute bottom-5 left-5 z-40 max-w-[calc(100%-2.5rem)] border border-border bg-background/82 px-3 py-1.5 backdrop-blur-sm sm:max-w-[60%]">
+        <div className="flex min-w-0 items-center gap-2 font-mono text-[9px]">
+          <span className="shrink-0 text-primary">CH{String(camera.channel).padStart(2, "0")}</span>
+          <span className="truncate text-foreground">{camera.name}</span>
+          <span className="hidden truncate text-muted-foreground sm:inline">{camera.location}</span>
           {/* The only LIVE claim in the HUD: measured stream readiness. */}
           <span
             className={cn(
+              "shrink-0",
               badge.tone === "success" && "text-success",
               badge.tone === "warning" && "text-warning",
               badge.tone === "error" && "text-destructive",
@@ -143,7 +145,9 @@ export function MainMonitoringViewport({
           </span>
         </div>
       </div>
-      <div className="absolute bottom-5 right-5 z-40 flex items-center gap-3 border border-primary/40 bg-background/82 px-3 py-1.5 font-mono text-[9px] backdrop-blur-sm">
+      {/* HUD zone bottom-right: lowest-priority metadata, reduced first on small
+          viewports so it can never overlap identity/status or Locate wording. */}
+      <div className="absolute bottom-5 right-5 z-40 hidden items-center gap-3 border border-primary/40 bg-background/82 px-3 py-1.5 font-mono text-[9px] backdrop-blur-sm sm:flex">
         <span
           className={cn(
             "flex items-center gap-1",
@@ -152,10 +156,11 @@ export function MainMonitoringViewport({
         >
           <Cpu className="size-3" /> AI
         </span>
-        <span>{camera.resolution}</span>
+        <span className="hidden md:inline">{camera.resolution}</span>
         <span>{stale ? "— FPS" : `${camera.fps} FPS`}</span>
         {camera.isDemo && <span className="text-warning">DEMO SOURCE</span>}
       </div>
+
     </div>
   );
 }
