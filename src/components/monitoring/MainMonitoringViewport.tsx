@@ -10,6 +10,8 @@ import {
   recordingStateLabel,
 } from "@/lib/health";
 import type { NormalizedBox } from "@/lib/subject-locate";
+import type { StreamReadiness } from "@/lib/stream-health";
+
 import { SubjectLocateOverlay } from "./SubjectLocateOverlay";
 import { DetectionOverlayLayer } from "./DetectionOverlayLayer";
 import { LiveAlertOverlay } from "./LiveAlertOverlay";
