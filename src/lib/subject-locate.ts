@@ -118,8 +118,9 @@ export function parseLocateReply(raw: unknown, target: LocateTarget): Parsed {
     if (camera === null || camera.trim() === "") return { ok: false, message: MALFORMED };
     if (lastSeenAt === null) return { ok: false, message: MALFORMED };
     if (bbox === null) return { ok: false, message: MALFORMED };
-  } else if (rawBbox !== null && rawBbox !== undefined) {
-    // A non-located state must never be accompanied by geometry.
+  } else if (rawBbox !== null) {
+    // A non-located state must explicitly say "no geometry": bbox: null.
+    // Missing/undefined bbox is malformed, and any box at all is malformed.
     return { ok: false, message: MALFORMED };
   }
   return {
