@@ -210,3 +210,31 @@ subject represents one roster student of the same exam session.
 - The anonymous label always remains visible. A resolved student name is shown
   **beside** `S00n`, never instead of it, so an operator can always see that the
   identity is a human judgement rather than an AI conclusion.
+
+## 13. Locate an existing anonymous subject (read-only)
+
+`GET /exam-sessions/{exam_session_id}/subjects/{subject_number}/locate` answers
+one question and changes nothing:
+
+> Is this subject safely observable right now, and if so on which camera and at
+> which last actually observed bounding box?
+
+Guarantees:
+
+- **Read-only.** No allocation, renumbering, recovery, transfer, lifecycle
+  transition or roster resolution happens on this path.
+- **Observation, not prediction.** Only the last actually observed box is
+  returned; motion prediction is never used to invent a position.
+- **Consistent read.** The per-camera lifecycle locks of the session are held
+  while the registries are read, so the answer is one non-torn observation.
+- **Fail closed.** `not_armed`, `not_found`, `unresolved`, `provisional`,
+  `conflict`, `temporarily_lost`, `lost`, `ended`, `unavailable` and `ambiguous`
+  all return **no bounding box**. A subject number seen on more than one camera
+  is `ambiguous`: no camera is picked.
+- **Anonymous.** The payload carries the subject number/label only — never a raw
+  tracking id and never roster identity.
+
+The console highlights a subject only for a `located` reply that matches the
+requested session and subject number *and* the camera currently displayed; every
+other answer is shown as text. Highlight geometry is computed against the real
+displayed `object-cover` frame, so the marker cannot drift onto another person.
