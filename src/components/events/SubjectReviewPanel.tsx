@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { SeverityBadge, StatusBadge, eventTypeLabel } from "@/components/common/EventBadges";
 import { Panel } from "@/components/common/Panel";
+import { LocateSubjectButton } from "@/components/common/LocateSubjectButton";
 import { Button } from "@/components/ui/button";
 import {
   Select,
