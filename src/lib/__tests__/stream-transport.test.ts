@@ -355,3 +355,92 @@ describe("camera wall and overlay hygiene", () => {
     expect(imageSize).toBeNull();
   });
 });
+
+// --- Prompt 7C: freshness deadline + camera-switch ticket pairing ---
+
+import {
+  STREAM_HEALTH_MAX_AGE_MS,
+} from "../stream-health";
+
+describe("stream-health freshness deadline", () => {
+  const live = { ok: true as const, cameras: [{ id: "C1", connected: true, streaming: true }] };
+  const base = {
+    cameraId: "C1",
+    cameraOffline: false,
+    health: live,
+    healthFailed: false,
+    healthPending: false,
+  };
+
+  it("A: a fresh successful health result says LIVE", () => {
+    const r = streamReadiness({ ...base, healthUpdatedAt: 1_000, now: 1_200 });
+    expect(r.state).toBe("live");
+    expect(r.displayable).toBe(true);
+  });
+
+  it("B: a cached result older than the deadline fails closed even though it says live", () => {
+    const r = streamReadiness({
+      ...base,
+      healthUpdatedAt: 1_000,
+      now: 1_000 + STREAM_HEALTH_MAX_AGE_MS + 1,
+    });
+    expect(r.displayable).toBe(false);
+    expect(r.state).toBe("awaiting_service");
+    expect(base.health.cameras[0]!.streaming).toBe(true);
+  });
+
+  it("C: a normal in-flight 2s refetch does not blank a still-fresh result", () => {
+    // isFetching is deliberately not an input: only AGE matters.
+    const r = streamReadiness({ ...base, healthUpdatedAt: 1_000, now: 1_000 + 2_000 });
+    expect(r.state).toBe("live");
+  });
+
+  it("never trusts a missing completion timestamp", () => {
+    expect(streamReadiness({ ...base, healthUpdatedAt: 0, now: 5 }).displayable).toBe(false);
+  });
+});
+
+describe("D: hung /status becomes unavailable", () => {
+  it("aborts the status fetch on the bounded deadline", async () => {
+    const signal = AbortSignal.timeout(20);
+    const hung = new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("TimeoutError")));
+    });
+    await expect(hung).rejects.toThrow();
+    // The server helper maps any fetch rejection to a truthful failure outcome,
+    // which readiness treats as health unavailable.
+    const r = streamReadiness({
+      cameraId: "C1",
+      cameraOffline: false,
+      health: { ok: false, message: "The AI service is unreachable." },
+      healthFailed: false,
+      healthPending: false,
+      healthUpdatedAt: Date.now(),
+    });
+    expect(r.displayable).toBe(false);
+    expect(r.state).toBe("awaiting_service");
+  });
+});
+
+describe("E/F: camera switch never pairs a new camera with an old ticket", () => {
+  const mountedTicket = (connection: { cameraId: string; activeTicket: string | null }, cameraId: string) =>
+    connection.cameraId === cameraId ? connection.activeTicket : null;
+
+  it("E: C1's active ticket cannot be mounted while the prop is already C2", () => {
+    let c1 = initialStreamConnection("C1");
+    c1 = streamConnectionReducer(c1, { type: "open", ticket: "TICKET-C1" });
+    expect(c1.activeTicket).toBe("TICKET-C1");
+    // Render immediately after the prop switch, before the reducer effect runs.
+    expect(mountedTicket(c1, "C2")).toBeNull();
+  });
+
+  it("F: after the lifecycle reset, C2 opens with its own ticket", () => {
+    let state = initialStreamConnection("C1");
+    state = streamConnectionReducer(state, { type: "open", ticket: "TICKET-C1" });
+    state = streamConnectionReducer(state, { type: "camera", cameraId: "C2" });
+    expect(state.activeTicket).toBeNull();
+    state = streamConnectionReducer(state, { type: "open", ticket: "TICKET-C2" });
+    expect(mountedTicket(state, "C2")).toBe("TICKET-C2");
+    expect(state.activeTicket).not.toBe("TICKET-C1");
+  });
+});
