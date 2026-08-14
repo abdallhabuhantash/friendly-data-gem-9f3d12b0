@@ -16,7 +16,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from ..domain.observations import FrameObservations
 from ..domain.session_subjects import (
