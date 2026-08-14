@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Grid2X2, Monitor, PanelLeftClose, PanelRightClose } from "lucide-react";
+import { CrosshairOff, Grid2X2, Monitor, PanelLeftClose, PanelRightClose } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { CameraSidebar } from "@/components/monitoring/CameraSidebar";
 import { LiveEventPanel } from "@/components/monitoring/LiveEventPanel";
@@ -22,6 +22,7 @@ import {
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { useSubjectLocate } from "@/hooks/use-subject-locate";
 import {
+  expectedSubjectLabel,
   locateView,
   parseLocateSearch,
 } from "@/lib/subject-locate";
