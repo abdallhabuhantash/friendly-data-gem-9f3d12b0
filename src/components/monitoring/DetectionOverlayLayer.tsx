@@ -37,8 +37,7 @@ export function BoundingBox({ detection }: { detection: DetectionOverlay }) {
                 : "bg-primary text-primary-foreground",
         )}
       >
-        {uncertain ? "Uncertain association" : detection.className.replace("_", " ")}{" "}
-        {detection.trackingId ? `ID ${detection.trackingId}` : ""} ·{" "}
+        {uncertain ? "Uncertain association" : detection.className.replace("_", " ")} ·{" "}
         {Math.round(detection.confidence * 100)}%
       </div>
       <span className="absolute -left-px -top-px size-2 border-l-2 border-t-2 border-current" />
