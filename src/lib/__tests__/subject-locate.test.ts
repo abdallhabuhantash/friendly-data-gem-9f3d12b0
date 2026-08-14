@@ -6,6 +6,8 @@ import {
   locateStatusMessage,
   locateSearch,
   locateTargetFor,
+  locateView,
+  expectedSubjectLabel,
   normalizedBox,
   parseLocateReply,
   parseLocateSearch,
@@ -69,10 +71,42 @@ describe("locate reply validation", () => {
     expect(parseLocateReply("located", TARGET).ok).toBe(false);
   });
 
-  it("drops a box that accompanies a non-located state", () => {
-    const parsed = parseLocateReply(reply({ locate_state: "temporarily_lost" }), TARGET);
-    expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(parsed.value.bbox).toBeNull();
+  it("rejects, never sanitizes, a box on a non-located state", () => {
+    expect(parseLocateReply(reply({ locate_state: "temporarily_lost" }), TARGET).ok).toBe(false);
+    const clean = parseLocateReply(
+      reply({ locate_state: "temporarily_lost", bbox: null }),
+      TARGET,
+    );
+    expect(clean.ok).toBe(true);
+    if (clean.ok) expect(clean.value.bbox).toBeNull();
+  });
+
+  it("requires the deterministic anonymous label", () => {
+    expect(parseLocateReply(reply({ subject_label: "S7" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ subject_label: "Ahmad" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ subject_label: undefined }), TARGET).ok).toBe(false);
+    expect(expectedSubjectLabel(17)).toBe("S017");
+  });
+
+  it("requires a proven ACTIVE + CONFIRMED located answer", () => {
+    for (const lifecycle of ["temporarily_lost", "lost", "ended", null, undefined]) {
+      expect(parseLocateReply(reply({ lifecycle }), TARGET).ok).toBe(false);
+    }
+    for (const association of ["provisional", "unresolved", "conflict", null, undefined]) {
+      expect(parseLocateReply(reply({ association }), TARGET).ok).toBe(false);
+    }
+    expect(parseLocateReply(reply({ lifecycle: "asleep" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ association: "probably" }), TARGET).ok).toBe(false);
+  });
+
+  it("requires a real observation timestamp for a located answer", () => {
+    expect(parseLocateReply(reply({ last_seen_at: null }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ last_seen_at: "yesterday" }), TARGET).ok).toBe(false);
+    expect(parseLocateReply(reply({ last_seen_at: 12345 }), TARGET).ok).toBe(false);
+  });
+
+  it("requires a non-empty camera id for a located answer", () => {
+    expect(parseLocateReply(reply({ camera_id: "  " }), TARGET).ok).toBe(false);
   });
 
   it("only accepts fully normalized boxes", () => {
