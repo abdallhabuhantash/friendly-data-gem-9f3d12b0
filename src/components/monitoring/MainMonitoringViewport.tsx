@@ -236,9 +236,12 @@ function Health({
 export function CameraWall({
   cameras,
   onSelect,
+  readinessFor,
 }: {
   cameras: Camera[];
   onSelect: (camera: Camera) => void;
+  /** One shared page-level health result; each tile decides for itself. */
+  readinessFor: (cameraId: string) => StreamReadiness;
 }) {
   if (cameras.length === 0)
     return (
@@ -253,34 +256,31 @@ export function CameraWall({
         cameras.length === 1 ? "grid-cols-1" : cameras.length <= 4 ? "grid-cols-2" : "grid-cols-3",
       )}
     >
-      {cameras.map((camera) => (
-        <button
-          key={camera.id}
-          type="button"
-          onClick={() => onSelect(camera)}
-          className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
-        >
-          <div className="hud-grid absolute inset-0 grid place-items-center">
-            <LiveStreamPlayer
-              cameraId={camera.id}
-              offline={effectiveCameraStatus(camera) === "offline"}
-            />
-          </div>
-          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
-            <span className="truncate">
-              CH{String(camera.channel).padStart(2, "0")} · {camera.name}
-            </span>
-            <span
-              className={
-                effectiveCameraStatus(camera) === "online" ? "text-success" : "text-destructive"
-              }
-            >
-              {effectiveCameraStatus(camera).toUpperCase()}
-            </span>
-          </div>
-          <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
-        </button>
-      ))}
+      {cameras.map((camera) => {
+        const readiness = readinessFor(camera.id);
+        return (
+          <button
+            key={camera.id}
+            type="button"
+            onClick={() => onSelect(camera)}
+            className="group relative min-h-0 overflow-hidden border border-border bg-surface text-left"
+          >
+            <div className="hud-grid absolute inset-0 grid place-items-center">
+              <LiveStreamPlayer cameraId={camera.id} readiness={readiness} />
+            </div>
+            <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-background/85 px-2 py-1 font-mono text-[9px]">
+              <span className="truncate">
+                CH{String(camera.channel).padStart(2, "0")} · {camera.name}
+              </span>
+              <span className={readiness.displayable ? "text-success" : "text-destructive"}>
+                {readiness.displayable ? "LIVE" : readiness.label}
+              </span>
+            </div>
+            <Grid2X2 className="absolute right-2 top-2 size-3.5 text-primary" />
+          </button>
+        );
+      })}
     </div>
   );
 }
+
