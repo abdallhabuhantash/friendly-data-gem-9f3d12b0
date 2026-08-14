@@ -226,3 +226,73 @@ export function locateTargetFor(attribution: {
   if (typeof subject !== "number" || !Number.isInteger(subject) || subject < 1) return null;
   return { examSessionId: session, subjectNumber: subject };
 }
+
+/** Live-query facts the console is allowed to reason about. */
+export interface LocateQueryState {
+  data?: SubjectLocateResult | null | undefined;
+  isPending: boolean;
+  isError: boolean;
+  dataUpdatedAt?: number;
+  errorUpdatedAt?: number;
+}
+
+export interface LocateView {
+  /** The only highlight that may be drawn right now, if any. */
+  highlight: { box: NormalizedBox; label: string } | null;
+  /** Camera the viewport should switch to, or null to stay where it is. */
+  cameraSelection: string | null;
+  /** Truthful operator wording, or null when locate mode is off. */
+  status: string | null;
+  /** Whether the console should be polling the AI service at all. */
+  polling: boolean;
+}
+
+/**
+ * The single source of truth for what Locate mode shows.
+ *
+ * A cached success must never outlive a later failure: a pending request for a
+ * new target, an errored request, or a failure newer than the last success all
+ * clear the highlight explicitly here, rather than trusting the query cache to
+ * drop the old data.
+ */
+export function locateView(
+  target: LocateTarget | null,
+  state: LocateQueryState,
+  displayedCameraId: string | null | undefined,
+  availableCameraIds: readonly string[],
+): LocateView {
+  if (!target) return { highlight: null, cameraSelection: null, status: null, polling: false };
+  const failed =
+    state.isError ||
+    (state.errorUpdatedAt !== undefined &&
+      state.errorUpdatedAt > 0 &&
+      state.errorUpdatedAt >= (state.dataUpdatedAt ?? 0));
+  if (state.isPending || failed) {
+    return {
+      highlight: null,
+      cameraSelection: null,
+      status: state.isPending
+        ? `Locating ${expectedSubjectLabel(target.subjectNumber)}…`
+        : `${expectedSubjectLabel(target.subjectNumber)} could not be located right now, so no position is shown.`,
+      polling: true,
+    };
+  }
+  const result = state.data ?? null;
+  if (!result) {
+    return {
+      highlight: null,
+      cameraSelection: null,
+      status: `Locating ${expectedSubjectLabel(target.subjectNumber)}…`,
+      polling: true,
+    };
+  }
+  const highlight = locateHighlight(result, target, displayedCameraId ?? null);
+  const cameraSelection = locateCameraSelection(result, availableCameraIds);
+  const status =
+    result.locateState !== "located"
+      ? locateStatusMessage(result.locateState, result.subjectLabel)
+      : highlight
+        ? null
+        : `${result.subjectLabel} is observed on another camera.`;
+  return { highlight, cameraSelection, status, polling: true };
+}

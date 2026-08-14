@@ -19,7 +19,8 @@ export function useSubjectLocate(target: LocateTarget | null) {
         data: { examSessionId: target!.examSessionId, subjectNumber: target!.subjectNumber },
       }),
     enabled: target !== null,
-    refetchInterval: 1500,
+    // Modest live cadence: one target = one request; no polling without a target.
+    refetchInterval: 900,
     staleTime: 0,
     gcTime: 0,
     retry: false,
