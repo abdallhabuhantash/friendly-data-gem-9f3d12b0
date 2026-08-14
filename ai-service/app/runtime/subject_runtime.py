@@ -484,6 +484,31 @@ class SubjectRuntime:
             collected.extend(registry.snapshots())
         return tuple(sorted(collected, key=lambda item: item.subject_number))
 
+    def locate(self, exam_session_id: str, subject_number: int) -> SubjectLocation:
+        """Read-only lookup of ONE existing subject number.
+
+        Pure observation: it inspects the registries, mutates nothing, and never
+        allocates, recovers, renumbers or transfers an identity. A number owned
+        by more than one camera registry fails closed as ``ambiguous`` instead of
+        guessing a camera.
+        """
+        with self._lock:
+            state = self._sessions.get(exam_session_id)
+            armed = state is not None
+            owned = list(state.registries.items()) if state else []
+        candidates = [
+            (camera_id, snapshot)
+            for camera_id, registry in owned
+            for snapshot in registry.snapshots()
+            if snapshot.subject_number == subject_number
+        ]
+        return locate_from_candidates(
+            exam_session_id,
+            subject_number,
+            armed=armed,
+            candidates=candidates,
+        )
+
     def status(self) -> dict:
         """Measured facts only — never a promised capability."""
         with self._lock:
