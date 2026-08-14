@@ -93,6 +93,34 @@ function MonitoringPage() {
   const selectedEvent = selected
     ? events.find((event) => event.cameraId === selected.id)
     : undefined;
+
+  // --- locate one anonymous subject (read-only, measured by the AI service) ---
+  const search = Route.useSearch();
+  const locateTarget = useMemo(() => parseLocateSearch(search), [search]);
+  const locateQuery = useSubjectLocate(locateTarget);
+  const locateCamera = locateCameraSelection(
+    locateQuery.data,
+    cameras.map((camera) => camera.id),
+  );
+  useEffect(() => {
+    // A proven observation switches the viewport to the owning camera; a
+    // non-located answer never moves the operator anywhere.
+    if (!locateCamera) return;
+    setSelectedId(locateCamera);
+    setMode("single");
+  }, [locateCamera]);
+  const highlight = locateHighlight(locateQuery.data, locateTarget, selected?.id ?? null);
+  const locateStatus = !locateTarget
+    ? null
+    : locateQuery.isPending
+      ? "Locating subject…"
+      : locateQuery.isError
+        ? "The subject could not be located right now."
+        : locateQuery.data && locateQuery.data.locateState !== "located"
+          ? locateStatusMessage(locateQuery.data.locateState, locateQuery.data.subjectLabel)
+          : locateQuery.data && !highlight
+            ? `${locateQuery.data.subjectLabel} is observed on another camera.`
+            : null;
   return (
     <div className="flex h-screen min-h-[640px] w-full flex-col overflow-hidden bg-background">
       <SystemStatusBar
