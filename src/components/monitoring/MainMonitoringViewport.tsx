@@ -77,11 +77,14 @@ export function MainMonitoringViewport({
       {locate && live && (
         <SubjectLocateOverlay box={locate.box} label={locate.label} image={imageSize} />
       )}
+      {/* HUD zone: below the top-left AI badge, so it can never collide with the
+          temporary top-center live alert. */}
       {locateStatus && (
-        <div className="pointer-events-none absolute left-1/2 top-14 z-40 -translate-x-1/2 border border-warning/60 bg-background/88 px-3 py-1 text-center font-mono text-[9px] uppercase text-warning backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-5 top-16 z-40 max-w-[min(60%,320px)] truncate border border-warning/60 bg-background/88 px-2 py-1 font-mono text-[9px] uppercase text-warning backdrop-blur-sm">
           {locateStatus}
         </div>
       )}
+
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10 h-16 animate-surveillance-scan"
         style={{ background: "var(--scan-line)" }}
