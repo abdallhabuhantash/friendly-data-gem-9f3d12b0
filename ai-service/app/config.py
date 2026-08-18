@@ -27,13 +27,25 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "INFO"
 
-    # --- Supabase (service role, local backend only) ---
+    # --- Supabase (service role, local/on-prem backend only) ---
+    # Service-role mode stays fully supported for self-hosted deployments.
     supabase_url: str = ""
     supabase_service_role_key: str = ""
     snapshot_bucket: str = "snapshots"
 
-    # --- Operational endpoint auth ---
+    # --- Managed-cloud mode (no service-role key available) ---
+    # Group A (config reads) go directly to the Data API as an authenticated
+    # service-account user; Group B (privileged writes) go through the web app
+    # relay, authenticated with AI_SERVICE_KEY. Nothing is invented: every value
+    # must be supplied explicitly or the mode stays unconfigured.
+    supabase_publishable_key: str = ""
+    supabase_service_account_email: str = ""
+    supabase_service_account_password: str = ""
+    web_app_base_url: str = ""
+
+    # --- Operational endpoint auth (also the relay credential) ---
     ai_service_key: str = ""
+
 
     # --- Model ---
     yolo_model: str = "yolo11n.pt"
@@ -330,13 +342,63 @@ class Settings(BaseSettings):
     def subject_registry_configured(self) -> bool:
         return self.subjects_enabled and not self.subject_registry_problems
 
+    # --- Supabase access mode truthfulness --------------------------------
+    @property
+    def service_role_mode_configured(self) -> bool:
+        """Self-hosted/on-prem mode: one service-role key does everything."""
+        return bool(self.supabase_url and self.supabase_service_role_key)
+
+    @property
+    def cloud_relay_mode_problems(self) -> list[str]:
+        """Managed-cloud mode problems; empty means the mode is usable.
+
+        Every value is required explicitly. A partially configured mode is
+        reported as a problem instead of being silently downgraded.
+        """
+        values = {
+            "SUPABASE_URL": self.supabase_url,
+            "SUPABASE_PUBLISHABLE_KEY": self.supabase_publishable_key,
+            "SUPABASE_SERVICE_ACCOUNT_EMAIL": self.supabase_service_account_email,
+            "SUPABASE_SERVICE_ACCOUNT_PASSWORD": self.supabase_service_account_password,
+            "WEB_APP_BASE_URL": self.web_app_base_url,
+            "AI_SERVICE_KEY": self.ai_service_key,
+        }
+        missing = sorted(name for name, value in values.items() if not str(value or "").strip())
+        if missing:
+            return [
+                "managed-cloud Supabase access is incomplete: "
+                + ", ".join(missing)
+                + " (no default is assumed)"
+            ]
+        base = str(self.web_app_base_url).strip()
+        if not (base.startswith("http://") or base.startswith("https://")):
+            return ["WEB_APP_BASE_URL must be an http(s) URL"]
+        return []
+
+    @property
+    def cloud_relay_mode_configured(self) -> bool:
+        return not self.supabase_service_role_key and not self.cloud_relay_mode_problems
+
+    @property
+    def supabase_access_mode(self) -> str:
+        """`service_role`, `cloud_relay` or `unconfigured` - never a guess."""
+        if self.service_role_mode_configured:
+            return "service_role"
+        if self.cloud_relay_mode_configured:
+            return "cloud_relay"
+        return "unconfigured"
+
     def validate_runtime(self) -> list[str]:
         """Returns human-readable configuration problems (never secret values)."""
         problems: list[str] = []
         if not self.supabase_url:
             problems.append("SUPABASE_URL is not set")
-        if not self.supabase_service_role_key:
-            problems.append("SUPABASE_SERVICE_ROLE_KEY is not set")
+        if self.supabase_access_mode == "unconfigured":
+            problems.append(
+                "no usable Supabase access mode: set SUPABASE_SERVICE_ROLE_KEY "
+                "(self-hosted) or the managed-cloud relay settings"
+            )
+            problems.extend(self.cloud_relay_mode_problems)
         if not self.ai_service_key:
             problems.append("AI_SERVICE_KEY is not set (stream endpoint stays closed)")
         # Pose is optional: its problems are reported, never fatal.
@@ -345,6 +407,7 @@ class Settings(BaseSettings):
         # Anonymous subject tracking is optional too.
         problems.extend(self.subject_registry_problems)
         return problems
+
 
 
 
