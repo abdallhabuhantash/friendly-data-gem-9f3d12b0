@@ -1,12 +1,21 @@
-"""The single place that talks to Supabase with the service-role key.
+"""The single place that talks to Supabase.
+
+Two access modes are supported and both keep the SAME public interface:
+
+* `service_role` - self-hosted/on-prem: one service-role key performs every
+  read and write directly against the Data API (RLS bypassed).
+* `cloud_relay` - managed cloud: configuration reads (Group A) go directly to
+  the Data API as an authenticated service-account user under RLS, while
+  privileged writes and restricted reads (Group B) are relayed to the web app
+  with the shared AI_SERVICE_KEY.
 
 Everything above this layer works with typed domain models, never with raw
-dictionaries. The service-role key is read from the local environment only and
-is never logged or returned by the API.
+dictionaries. No credential is ever logged or returned by the API.
 """
 
 from __future__ import annotations
 
+import base64
 import logging
 import mimetypes
 from datetime import datetime, timezone
@@ -16,6 +25,7 @@ from typing import Any, Optional
 from supabase import Client, create_client
 
 from ..domain.models import CameraConfig, RuleConfig, SourceType, SystemConfig
+from .relay_client import RelayClient, RelayConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +60,64 @@ def _iso(value: Any) -> Optional[str]:
 class SupabaseRepository:
     """Typed access to the tables the AI service owns or observes."""
 
-    def __init__(self, url: str, service_role_key: str, snapshot_bucket: str = "snapshots") -> None:
-        self._client: Client = create_client(url, service_role_key)
+    def __init__(
+        self,
+        url: str,
+        service_role_key: str = "",
+        snapshot_bucket: str = "snapshots",
+        *,
+        publishable_key: str = "",
+        service_account_email: str = "",
+        service_account_password: str = "",
+        relay: Optional[RelayClient] = None,
+        client: Optional[Client] = None,
+    ) -> None:
         self._bucket = snapshot_bucket
+        self._relay = relay
+
+        if client is not None:
+            # Injected client (tests, or an already-authenticated session).
+            self._client: Client = client
+        elif service_role_key:
+            # Self-hosted mode: unchanged behaviour, no relay involved.
+            self._client = create_client(url, service_role_key)
+            self._relay = None
+        elif publishable_key:
+            if relay is None:
+                raise ValueError(
+                    "managed-cloud mode requires a relay for privileged operations"
+                )
+            if not (service_account_email and service_account_password):
+                raise ValueError(
+                    "managed-cloud mode requires a service-account email and password"
+                )
+            self._client = create_client(url, publishable_key)
+            # RLS applies as this user: configuration reads only.
+            self._client.auth.sign_in_with_password(
+                {"email": service_account_email, "password": service_account_password}
+            )
+        else:
+            raise ValueError(
+                "no Supabase access mode configured: provide a service-role key "
+                "or the managed-cloud publishable key, service account and relay"
+            )
+
+    @property
+    def access_mode(self) -> str:
+        return "cloud_relay" if self._relay is not None else "service_role"
+
+    def _relayed(self, operation: str, payload: dict[str, Any]) -> Any:
+        """Performs one Group B operation through the relay.
+
+        A relayed uniqueness conflict keeps the SAME semantics as a direct
+        duplicate-key rejection.
+        """
+        assert self._relay is not None  # guarded by every call site
+        try:
+            return self._relay.call(operation, payload)
+        except RelayConflictError as exc:
+            raise DuplicateEventError(str(payload.get("event_id") or "")) from exc
+
 
     # --- configuration ----------------------------------------------------
     def system_config(self) -> SystemConfig:
@@ -149,7 +214,12 @@ class SupabaseRepository:
         return rules
 
     def camera_credentials(self, camera_id: str) -> tuple[Optional[str], Optional[str]]:
-        """Service-role-only credential lookup. Values never leave the process."""
+        """Privileged credential lookup. Values never leave the process."""
+        if self._relay is not None:
+            body = self._relayed("camera-credentials", {"camera_id": camera_id}) or {}
+            if not isinstance(body, dict):
+                return (None, None)
+            return body.get("username"), body.get("password")
         response = (
             self._client.table("camera_credentials")
             .select("username,password")
@@ -170,32 +240,52 @@ class SupabaseRepository:
         payload: dict[str, Any] = {"status": status, "fps": int(round(fps))}
         if heartbeat_at is not None:
             payload["last_heartbeat_at"] = heartbeat_at.astimezone(timezone.utc).isoformat()
+        if self._relay is not None:
+            self._relayed("camera-runtime", {"camera_id": camera_id, "patch": payload})
+            return
         self._client.table("cameras").update(payload).eq("id", camera_id).execute()
 
     def write_ai_health(self, *, online: bool, is_demo: bool, payload: dict[str, Any]) -> None:
-        self._client.table("service_health").upsert(
-            {
-                "service": "ai",
-                "online": online,
-                "is_demo": is_demo,
-                "payload": payload,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            },
-            on_conflict="service",
-        ).execute()
+        row = {
+            "service": "ai",
+            "online": online,
+            "is_demo": is_demo,
+            "payload": payload,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if self._relay is not None:
+            self._relayed("service-health", {"row": row})
+            return
+        self._client.table("service_health").upsert(row, on_conflict="service").execute()
 
     def upload_snapshot(self, object_path: str, local_file: Path) -> str:
         """Uploads to the private bucket and returns the stored object path."""
         content_type = mimetypes.guess_type(local_file.name)[0] or "image/jpeg"
+        payload_bytes = local_file.read_bytes()
+        if self._relay is not None:
+            self._relayed(
+                "snapshot-upload",
+                {
+                    "object_path": object_path,
+                    "content_type": content_type,
+                    "bucket": self._bucket,
+                    "data_base64": base64.b64encode(payload_bytes).decode("ascii"),
+                },
+            )
+            return object_path
         self._client.storage.from_(self._bucket).upload(
             object_path,
-            local_file.read_bytes(),
+            payload_bytes,
             {"content-type": content_type, "upsert": "true"},
         )
         return object_path
 
     def insert_event(self, row: dict[str, Any]) -> None:
         """Plain insert. A duplicate UUID means the event is already stored."""
+        if self._relay is not None:
+            # HTTP 409 from the relay maps to DuplicateEventError.
+            self._relayed("event-insert", {"row": row, "event_id": row.get("id", "")})
+            return
         try:
             self._client.table("events").insert(row).execute()
         except Exception as exc:  # supabase raises APIError subclasses
@@ -205,6 +295,11 @@ class SupabaseRepository:
             raise
 
     def set_event_snapshot(self, event_id: str, snapshot_path: str) -> None:
+        if self._relay is not None:
+            self._relayed(
+                "event-snapshot", {"event_id": event_id, "snapshot_path": snapshot_path}
+            )
+            return
         self._client.table("events").update({"snapshot_path": snapshot_path}).eq(
             "id", event_id
         ).execute()
@@ -216,6 +311,11 @@ class SupabaseRepository:
         (event_id, session_subject_id) or (event_id, participant_index) pair, so
         a retry is treated as already-done rather than as a failure.
         """
+        if self._relay is not None:
+            self._relayed(
+                "event-subject-insert", {"row": row, "event_id": row.get("event_id", "")}
+            )
+            return
         try:
             self._client.table("event_subjects").insert(row).execute()
         except Exception as exc:
@@ -224,8 +324,16 @@ class SupabaseRepository:
                 raise DuplicateEventError(str(row.get("event_id", ""))) from exc
             raise
 
+
     def session_subject_row_id(self, exam_session_id: str, subject_number: int) -> Optional[str]:
         """Resolves the persisted row id of one anonymous subject, or None."""
+        if self._relay is not None:
+            body = self._relayed(
+                "session-subject-row-id",
+                {"exam_session_id": exam_session_id, "subject_number": int(subject_number)},
+            ) or {}
+            row_id = body.get("id") if isinstance(body, dict) else None
+            return str(row_id) if row_id else None
         response = (
             self._client.table("session_subjects")
             .select("id")
@@ -236,6 +344,7 @@ class SupabaseRepository:
         )
         rows = response.data or []
         return str(rows[0]["id"]) if rows else None
+
 
     # --- exam sessions (anonymous subject runtime) -------------------------
     def exam_session(self, exam_session_id: str) -> Optional[dict[str, Any]]:
@@ -295,7 +404,14 @@ class SupabaseRepository:
             payload["started_at"] = started_at.astimezone(timezone.utc).isoformat()
         if ended_at is not None:
             payload["ended_at"] = ended_at.astimezone(timezone.utc).isoformat()
+        if self._relay is not None:
+            self._relayed(
+                "exam-session-runtime",
+                {"exam_session_id": exam_session_id, "patch": payload},
+            )
+            return
         self._client.table("exam_sessions").update(payload).eq("id", exam_session_id).execute()
+
 
     def transition_exam_session(
         self,
@@ -318,6 +434,16 @@ class SupabaseRepository:
             payload["started_at"] = started_at.astimezone(timezone.utc).isoformat()
         if ended_at is not None:
             payload["ended_at"] = ended_at.astimezone(timezone.utc).isoformat()
+        if self._relay is not None:
+            body = self._relayed(
+                "exam-session-transition",
+                {
+                    "exam_session_id": exam_session_id,
+                    "expected_status": expected_status,
+                    "patch": payload,
+                },
+            ) or {}
+            return bool(isinstance(body, dict) and body.get("transitioned"))
         response = (
             self._client.table("exam_sessions")
             .update(payload)
@@ -329,17 +455,25 @@ class SupabaseRepository:
 
 
 
+
     # --- anonymous subject state -----------------------------------------
     def existing_subject_rows(self, exam_session_id: str) -> dict[int, str]:
-        response = (
-            self._client.table("session_subjects")
-            .select("id,subject_number")
-            .eq("exam_session_id", exam_session_id)
-            .execute()
-        )
+        if self._relay is not None:
+            body = self._relayed(
+                "session-subject-rows", {"exam_session_id": exam_session_id}
+            ) or {}
+            rows = body.get("rows", []) if isinstance(body, dict) else []
+        else:
+            response = (
+                self._client.table("session_subjects")
+                .select("id,subject_number")
+                .eq("exam_session_id", exam_session_id)
+                .execute()
+            )
+            rows = response.data or []
         return {
             int(row["subject_number"]): str(row["id"])
-            for row in (response.data or [])
+            for row in rows
             if row.get("subject_number") is not None
         }
 
@@ -349,6 +483,12 @@ class SupabaseRepository:
         The motion columns are what lets a restarted service recover a returning
         person onto the SAME subject number instead of numbering them again.
         """
+        if self._relay is not None:
+            body = self._relayed(
+                "session-subject-history", {"exam_session_id": exam_session_id}
+            ) or {}
+            rows = body.get("rows", []) if isinstance(body, dict) else []
+            return [dict(row) for row in rows]
         response = (
             self._client.table("session_subjects")
             .select(
@@ -370,6 +510,14 @@ class SupabaseRepository:
         Delegating to the database is what makes numbering safe when several
         cameras — or several service instances — create subjects concurrently.
         """
+        if self._relay is not None:
+            body = self._relayed(
+                "allocate-subject-number", {"exam_session_id": exam_session_id}
+            ) or {}
+            number = body.get("subject_number") if isinstance(body, dict) else None
+            if number is None:
+                raise RuntimeError("subject number allocation returned no value")
+            return int(number)
         response = self._client.rpc(
             "allocate_session_subject_number",
             {"_exam_session_id": exam_session_id},
@@ -380,6 +528,7 @@ class SupabaseRepository:
         if number is None:
             raise RuntimeError("subject number allocation returned no value")
         return int(number)
+
 
     def upsert_session_subject(self, payload: dict[str, Any]) -> Optional[str]:
         """Anonymous subject state only: number, lifecycle, times, motion.
@@ -409,16 +558,23 @@ class SupabaseRepository:
             "reassociation_count": int(payload.get("reassociation_count") or 0),
             "last_association_confidence": payload.get("last_association_confidence"),
         }
-        response = (
-            self._client.table("session_subjects")
-            .upsert(row, on_conflict="exam_session_id,subject_number")
-            .execute()
-        )
-        rows = response.data or []
-        if rows and rows[0].get("id"):
-            return str(rows[0]["id"])
+        if self._relay is not None:
+            body = self._relayed("session-subject-upsert", {"row": row}) or {}
+            row_id = body.get("id") if isinstance(body, dict) else None
+            if row_id:
+                return str(row_id)
+        else:
+            response = (
+                self._client.table("session_subjects")
+                .upsert(row, on_conflict="exam_session_id,subject_number")
+                .execute()
+            )
+            rows = response.data or []
+            if rows and rows[0].get("id"):
+                return str(rows[0]["id"])
         existing = self.existing_subject_rows(str(payload["exam_session_id"]))
         return existing.get(int(payload["subject_number"]))
+
 
     def open_subject_track(
         self,
@@ -432,18 +588,20 @@ class SupabaseRepository:
         start_reason: Optional[str] = None,
     ) -> None:
         """Records one raw-track segment. Raw ids are temporary labels only."""
-        self._client.table("session_subject_tracks").insert(
-            {
-                "session_subject_id": session_subject_id,
-                "exam_session_id": exam_session_id,
-                "raw_tracking_id": raw_tracking_id,
-                "started_at": _iso(started_at),
-                "association_method": association_method,
-                "association_confidence": association_confidence,
-                "association_state": "confirmed",
-                "start_reason": start_reason,
-            }
-        ).execute()
+        row = {
+            "session_subject_id": session_subject_id,
+            "exam_session_id": exam_session_id,
+            "raw_tracking_id": raw_tracking_id,
+            "started_at": _iso(started_at),
+            "association_method": association_method,
+            "association_confidence": association_confidence,
+            "association_state": "confirmed",
+            "start_reason": start_reason,
+        }
+        if self._relay is not None:
+            self._relayed("subject-track-open", {"row": row})
+            return
+        self._client.table("session_subject_tracks").insert(row).execute()
 
     def close_subject_track(
         self,
@@ -453,9 +611,21 @@ class SupabaseRepository:
         ended_at: datetime,
         end_reason: Optional[str] = None,
     ) -> None:
+        if self._relay is not None:
+            self._relayed(
+                "subject-track-close",
+                {
+                    "exam_session_id": exam_session_id,
+                    "raw_tracking_id": raw_tracking_id,
+                    "ended_at": _iso(ended_at),
+                    "end_reason": end_reason,
+                },
+            )
+            return
         self._client.table("session_subject_tracks").update(
             {"ended_at": _iso(ended_at), "end_reason": end_reason}
         ).eq("exam_session_id", exam_session_id).eq(
             "raw_tracking_id", raw_tracking_id
         ).is_("ended_at", "null").execute()
+
 

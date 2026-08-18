@@ -145,11 +145,24 @@ class Orchestrator:
         self._pose_provider_factory = pose_provider_factory
 
         self.stream_hub = StreamHub()
+        # Managed cloud has no service-role key: privileged operations are
+        # relayed to the web app, configuration reads stay direct under RLS.
+        relay = None
+        if not settings.supabase_service_role_key and settings.cloud_relay_mode_configured:
+            from ..infrastructure.relay_client import RelayClient
+
+            relay = RelayClient(settings.web_app_base_url, settings.ai_service_key)
+            logger.info("Supabase access mode: managed-cloud relay")
         self.repository = SupabaseRepository(
             settings.supabase_url,
             settings.supabase_service_role_key,
             settings.snapshot_bucket,
+            publishable_key=settings.supabase_publishable_key,
+            service_account_email=settings.supabase_service_account_email,
+            service_account_password=settings.supabase_service_account_password,
+            relay=relay,
         )
+
         self.queue = OfflineQueue(settings.state_path / "queue.db")
 
         sources = [FileCredentialProvider(settings.credentials_path)]

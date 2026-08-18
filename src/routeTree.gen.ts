@@ -24,6 +24,7 @@ import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedExamSessionsIndexRouteImport } from './routes/_authenticated/exam-sessions.index'
 import { Route as AuthenticatedExamSessionsSessionIdRouteImport } from './routes/_authenticated/exam-sessions.$sessionId'
 import { Route as ApiStreamCameraIdRouteImport } from './routes/api/stream.$cameraId'
+import { Route as ApiPublicAiOperationRouteImport } from './routes/api/public/ai/$operation'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -101,6 +102,11 @@ const ApiStreamCameraIdRoute = ApiStreamCameraIdRouteImport.update({
   path: '/api/stream/$cameraId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicAiOperationRoute = ApiPublicAiOperationRouteImport.update({
+  id: '/api/public/ai/$operation',
+  path: '/api/public/ai/$operation',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -117,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/exam-sessions/$sessionId': typeof AuthenticatedExamSessionsSessionIdRoute
   '/api/stream/$cameraId': typeof ApiStreamCameraIdRoute
   '/exam-sessions/': typeof AuthenticatedExamSessionsIndexRoute
+  '/api/public/ai/$operation': typeof ApiPublicAiOperationRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/exam-sessions/$sessionId': typeof AuthenticatedExamSessionsSessionIdRoute
   '/api/stream/$cameraId': typeof ApiStreamCameraIdRoute
   '/exam-sessions': typeof AuthenticatedExamSessionsIndexRoute
+  '/api/public/ai/$operation': typeof ApiPublicAiOperationRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_authenticated/exam-sessions/$sessionId': typeof AuthenticatedExamSessionsSessionIdRoute
   '/api/stream/$cameraId': typeof ApiStreamCameraIdRoute
   '/_authenticated/exam-sessions/': typeof AuthenticatedExamSessionsIndexRoute
+  '/api/public/ai/$operation': typeof ApiPublicAiOperationRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -169,6 +178,7 @@ export interface FileRouteTypes {
     | '/exam-sessions/$sessionId'
     | '/api/stream/$cameraId'
     | '/exam-sessions/'
+    | '/api/public/ai/$operation'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/exam-sessions/$sessionId'
     | '/api/stream/$cameraId'
     | '/exam-sessions'
+    | '/api/public/ai/$operation'
   id:
     | '__root__'
     | '/'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/_authenticated/exam-sessions/$sessionId'
     | '/api/stream/$cameraId'
     | '/_authenticated/exam-sessions/'
+    | '/api/public/ai/$operation'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -209,6 +221,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiStreamCameraIdRoute: typeof ApiStreamCameraIdRoute
+  ApiPublicAiOperationRoute: typeof ApiPublicAiOperationRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -318,6 +331,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStreamCameraIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/ai/$operation': {
+      id: '/api/public/ai/$operation'
+      path: '/api/public/ai/$operation'
+      fullPath: '/api/public/ai/$operation'
+      preLoaderRoute: typeof ApiPublicAiOperationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -358,6 +378,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiStreamCameraIdRoute: ApiStreamCameraIdRoute,
+  ApiPublicAiOperationRoute: ApiPublicAiOperationRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
