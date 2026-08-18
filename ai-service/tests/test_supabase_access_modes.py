@@ -92,7 +92,12 @@ class FakeClient:
 
     def rpc(self, name, params):  # noqa: ANN001, ANN201
         self.rpc_calls.append((name, params))
-        return _Response(7)
+
+        class _Rpc:
+            def execute(self):  # noqa: ANN201
+                return _Response(7)
+
+        return _Rpc()
 
     @property
     def storage(self):  # noqa: ANN201
@@ -138,9 +143,32 @@ def direct_repo(responses=None):  # noqa: ANN001, ANN201
     return repo, client
 
 
+ENV_KEYS = (
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_SERVICE_ACCOUNT_EMAIL",
+    "SUPABASE_SERVICE_ACCOUNT_PASSWORD",
+    "WEB_APP_BASE_URL",
+    "AI_SERVICE_KEY",
+)
+
+
+@pytest.fixture()
+def isolated_env(monkeypatch):  # noqa: ANN001, ANN201
+    """Configuration tests must never inherit a local .env or shell value."""
+    for key in ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    return monkeypatch
+
+
+def settings_for(**values):  # noqa: ANN001, ANN201
+    return Settings(_env_file=None, **values)
+
+
 # --- 1. configuration validation ----------------------------------------
-def test_service_role_mode_is_configured_and_reports_no_access_problem():
-    settings = Settings(
+def test_service_role_mode_is_configured_and_reports_no_access_problem(isolated_env):
+    settings = settings_for(
         supabase_url="https://example.supabase.co",
         supabase_service_role_key="local-service-role",
         ai_service_key="shared",
@@ -150,8 +178,8 @@ def test_service_role_mode_is_configured_and_reports_no_access_problem():
     assert settings.validate_runtime() == []
 
 
-def test_cloud_mode_requires_every_value_explicitly():
-    settings = Settings(
+def test_cloud_mode_requires_every_value_explicitly(isolated_env):
+    settings = settings_for(
         supabase_url="https://example.supabase.co",
         supabase_publishable_key="pub",
         ai_service_key="shared",
@@ -164,8 +192,8 @@ def test_cloud_mode_requires_every_value_explicitly():
     assert any("no usable Supabase access mode" in p for p in settings.validate_runtime())
 
 
-def test_fully_configured_cloud_mode_is_usable():
-    settings = Settings(
+def test_fully_configured_cloud_mode_is_usable(isolated_env):
+    settings = settings_for(
         supabase_url="https://example.supabase.co",
         supabase_publishable_key="pub",
         supabase_service_account_email="ai@example.com",
@@ -177,8 +205,8 @@ def test_fully_configured_cloud_mode_is_usable():
     assert settings.validate_runtime() == []
 
 
-def test_cloud_mode_rejects_a_non_http_web_app_base_url():
-    settings = Settings(
+def test_cloud_mode_rejects_a_non_http_web_app_base_url(isolated_env):
+    settings = settings_for(
         supabase_url="https://example.supabase.co",
         supabase_publishable_key="pub",
         supabase_service_account_email="ai@example.com",
