@@ -5,24 +5,28 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 httpx==0.28.1
-# Supabase client set. Pinned as one mutually compatible bundle:
-#   * >=2.16.0 is required for the opaque API-key formats (sb_publishable_* /
-#     sb_secret_*); earlier releases reject them in create_client() because the
-#     key had to be JWT-shaped.
+# Supabase client set. Pinned as ONE mutually compatible bundle, chosen as the
+# smallest set that satisfies every constraint at once:
+#   * supabase 2.16.0 is the FIRST release that accepts the opaque API-key
+#     formats (sb_publishable_* / sb_secret_*); earlier releases reject them in
+#     create_client() because the key had to be JWT-shaped.
 #   * The sub-clients are pinned exactly because supabase >=2.16 passes
 #     http_client= to postgrest/storage3/functions. A stale transitive
 #     postgrest (e.g. 0.19.3 left over from supabase 2.11.0) raises
 #     "SyncPostgrestClient.__init__() got an unexpected keyword argument
 #     'http_client'" on the first table access. Explicit pins force pip to
-#     upgrade those leftovers instead of keeping them.
-# Do not loosen or downgrade these lines individually.
-supabase==2.31.0
-postgrest==2.31.0
-storage3==2.31.0
-realtime==2.31.0
-supabase-auth==2.31.0
-supabase-functions==2.31.0
-
+#     upgrade those leftovers in an existing environment.
+#   * Newer bundles (supabase 2.3x / storage3 2.3x) require pydantic>=2.11.7
+#     and are therefore NOT installable beside this project's pydantic pin.
+#     This bundle installs cleanly with pydantic==2.10.4, so FastAPI, pydantic
+#     and pydantic-settings stay untouched.
+# Do not loosen, upgrade or downgrade these lines individually.
+supabase==2.16.0
+gotrue==2.12.4
+postgrest==1.1.1
+realtime==2.5.3
+storage3==0.12.1
+supafunc==0.10.2
 opencv-python==4.10.0.84
 numpy==1.26.4
 ultralytics==8.3.55
