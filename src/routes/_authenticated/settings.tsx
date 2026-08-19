@@ -15,6 +15,7 @@ import {
   useSystemSettings,
   useUpdateSettings,
 } from "@/hooks/use-monitoring";
+import { AI_ENDPOINT_GUIDANCE, classifyAiEndpoint } from "@/lib/ai-endpoint";
 import { aiHealthState, componentHealthLabel, nvrHealthState } from "@/lib/health";
 import { formatRelative } from "@/lib/format";
 import { requireAdministrator } from "@/lib/require-admin";
@@ -165,9 +166,10 @@ function SettingsPage() {
               <Input
                 value={draft.aiServiceUrl}
                 onChange={(event) => set("aiServiceUrl", event.target.value)}
-                placeholder="http://192.168.1.50:8000"
+                placeholder="https://your-tunnel.example.com"
                 className="h-8 font-mono text-xs"
               />
+              <EndpointReachNotice value={draft.aiServiceUrl} />
             </Field>
             <Field label="WebSocket URL" error={errors["websocketUrl"]}>
               <Input
@@ -242,6 +244,37 @@ function SettingsPage() {
         </div>
       </PageContainer>
     </>
+  );
+}
+
+/**
+ * Truthful reachability notice for the AI service URL field.
+ *
+ * The Python AI service runs beside the camera on the operator's laptop. The
+ * published cloud console cannot call a loopback or LAN address, so that case is
+ * stated explicitly along with the required public HTTPS tunnel URL. No camera
+ * credentials or RTSP URLs are ever involved here.
+ */
+function EndpointReachNotice({ value }: { value: string }) {
+  const reach = classifyAiEndpoint(value);
+  const guidance = AI_ENDPOINT_GUIDANCE[reach];
+  if (guidance === null) {
+    return (
+      <span className="block font-mono text-[10px] uppercase tracking-[0.1em] text-success">
+        Public endpoint — reachable from the published console
+      </span>
+    );
+  }
+  return (
+    <span
+      className={
+        reach === "invalid"
+          ? "block text-[10px] leading-relaxed text-destructive"
+          : "block text-[10px] leading-relaxed text-warning"
+      }
+    >
+      {guidance}
+    </span>
   );
 }
 

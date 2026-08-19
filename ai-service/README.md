@@ -58,10 +58,18 @@ Endpoints:
 
 ## Connect the console
 
-1. In the console → Settings, set the AI service URL to this machine, e.g.
-   `http://10.0.0.20:8000`.
+1. In the console → Settings → **AI service URL**, set the origin the console
+   itself can reach:
+   - console opened on this same machine (`npm run dev`): `http://127.0.0.1:8000`
+   - **published cloud app**: a public HTTPS tunnel that forwards to
+     `127.0.0.1:8000`, e.g. `cloudflared tunnel --url http://127.0.0.1:8000`
+     (or `ngrok http 8000`) and paste the resulting `https://…` URL.
+     The Settings field states plainly when the value entered is private and
+     therefore unreachable from the published app.
 2. Store the same `AI_SERVICE_KEY` value as the web app's `AI_SERVICE_KEY`
-   secret so the stream proxy can authenticate.
+   secret so `/status` and the MJPEG stream proxy can authenticate. The tunnel
+   only ever exposes the AI service's own authenticated endpoints — camera
+   credentials and RTSP URLs never leave this machine.
 3. Enable the mobile phone rule and assign cameras.
 
 The database heartbeat path is outbound from Python to the published web relay;

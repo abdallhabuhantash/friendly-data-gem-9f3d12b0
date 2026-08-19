@@ -140,6 +140,7 @@ const BADGES: Record<StreamState, { text: string; tone: ViewportTone }> = {
   stalled: { text: "STREAM STALLED", tone: "warning" },
   camera_offline: { text: "CAMERA OFFLINE", tone: "error" },
   awaiting_service: { text: "AWAITING AI SERVICE", tone: "muted" },
+  service_unreachable: { text: "AI SERVICE NOT REACHABLE", tone: "warning" },
 };
 
 /** The ONE LIVE claim shown inside the video HUD. */

@@ -8,6 +8,8 @@
  * closed: the previous image is dropped and no LIVE wording is shown.
  */
 
+import type { AiEndpointReach } from "./ai-endpoint";
+
 /** The only stream facts the browser is ever given. No keys, no URLs, no FPS. */
 export interface CameraStreamHealth {
   id: string;
@@ -17,7 +19,7 @@ export interface CameraStreamHealth {
 
 export type StreamHealthReply =
   | { ok: true; cameras: CameraStreamHealth[] }
-  | { ok: false; message: string };
+  | { ok: false; message: string; reach?: AiEndpointReach };
 
 /**
  * Extracts the minimum safe per-camera stream facts from the authenticated
@@ -43,7 +45,13 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
 }
 
 /** Operational state of one camera's annotated stream, as currently measured. */
-export type StreamState = "live" | "stalled" | "camera_offline" | "awaiting_service";
+export type StreamState =
+  | "live"
+  | "stalled"
+  | "camera_offline"
+  | "awaiting_service"
+  /** The configured AI service endpoint cannot be reached from this console. */
+  | "service_unreachable";
 
 export interface StreamReadiness {
   state: StreamState;
@@ -57,6 +65,7 @@ const LABELS: Record<StreamState, string> = {
   stalled: "STREAM STALLED · AWAITING LIVE FRAMES",
   camera_offline: "NO SIGNAL · CAMERA OFFLINE",
   awaiting_service: "AWAITING AI SERVICE",
+  service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
 
 const readiness = (state: StreamState): StreamReadiness => ({
@@ -100,7 +109,15 @@ export function streamReadiness(input: {
 }): StreamReadiness {
   if (input.cameraOffline) return readiness("camera_offline");
   if (input.healthFailed || input.healthPending) return readiness("awaiting_service");
-  if (!input.health || !input.health.ok) return readiness("awaiting_service");
+  if (!input.health || !input.health.ok) {
+    // A private/loopback endpoint that cannot answer is a CONFIGURATION fact,
+    // not a transient wait: say so instead of implying the service will appear.
+    const reach = input.health && !input.health.ok ? input.health.reach : undefined;
+    if (reach === "local_only" || reach === "invalid" || reach === "unset") {
+      return readiness("service_unreachable");
+    }
+    return readiness("awaiting_service");
+  }
   const updatedAt = input.healthUpdatedAt;
   if (updatedAt !== undefined) {
     const now = input.now ?? Date.now();
