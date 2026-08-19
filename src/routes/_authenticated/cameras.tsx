@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Archive, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Archive, Copy, Pencil, Plus, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { CameraFormDialog } from "@/components/cameras/CameraFormDialog";
 import { Panel } from "@/components/common/Panel";
@@ -148,7 +148,20 @@ function CamerasPage() {
                           demo
                         </span>
                       )}
+                      {/* The record id is what the AI service host uses to key
+                          its local camera credentials file. */}
+                      <button
+                        type="button"
+                        title="Copy camera ID"
+                        aria-label={`Copy camera ID for ${camera.name}`}
+                        onClick={() => void navigator.clipboard?.writeText(camera.id)}
+                        className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        <Copy className="size-3" />
+                        {camera.id}
+                      </button>
                     </td>
+
                     <td className="px-3 py-2 text-muted-foreground">{camera.location || "—"}</td>
                     <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
                       {sourceLabel[camera.sourceType]}
