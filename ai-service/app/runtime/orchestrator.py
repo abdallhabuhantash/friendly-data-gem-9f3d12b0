@@ -217,6 +217,19 @@ class Orchestrator:
         # currently publishing no annotated frames. Never invented, never
         # optimistic: set from an actual failure, cleared by an actual success.
         self._analysis_error: dict[str, str] = {}
+        # Measured progress of the inference loop of ONE camera. These are the
+        # facts that distinguish "loop never ran", "every frame was skipped" and
+        # "one inference call is still in flight" from each other. All are
+        # counted from real events; none is ever estimated.
+        self._frames_seen: dict[str, int] = {}
+        self._frames_analysed: dict[str, int] = {}
+        self._last_analysis_at: dict[str, float] = {}
+        self._skip_reason: dict[str, str] = {}
+        # Monotonic timestamp of the analysis call currently in flight, if any.
+        self._analysis_started_at: dict[str, float] = {}
+        self._stall_logged_at: dict[str, float] = {}
+
+
 
         self._frame_gate = FrameGate()
         # Explicit Start/End versus automatic reconciliation: the lock serialises
