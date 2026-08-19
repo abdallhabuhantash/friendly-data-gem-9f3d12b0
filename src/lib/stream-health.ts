@@ -150,8 +150,13 @@ export function streamReadiness(input: {
   const entry = input.health.cameras.find((camera) => camera.id === input.cameraId);
   if (!entry) return readiness("awaiting_service");
   if (!entry.connected) return readiness("camera_offline");
-  if (!entry.streaming) return readiness("stalled");
-  return readiness("live");
+  if (entry.streaming) return readiness("live");
+  // The camera IS delivering frames but no annotated frame exists. Name the
+  // measured reason instead of the generic "awaiting live frames".
+  if (entry.analysisEnabled === false) return readiness("analysis_disabled");
+  if (entry.analysisError) return readiness("analysis_failed");
+  return readiness("stalled");
+
 }
 
 /** Bounded reconnect backoff: 1s → 2s → 5s → 10s (capped). */
