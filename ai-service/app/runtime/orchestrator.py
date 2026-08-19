@@ -407,7 +407,9 @@ class Orchestrator:
                 if pose:
                     pose.deactivate(camera_id)
 
-        self._ensure_inference_threads()
+        # Called unbound so a lightweight test host does not need to re-declare
+        # supervision to exercise configuration refresh.
+        Orchestrator._ensure_inference_threads(self)
 
     def _ensure_inference_threads(self) -> None:
         """Guarantees exactly one LIVING inference thread per active camera.
@@ -894,7 +896,7 @@ class Orchestrator:
                 )
                 last_health = now
             # A camera that is active must always have a living inference loop.
-            self._ensure_inference_threads()
+            Orchestrator._ensure_inference_threads(self)
             if now - last_cameras >= self.settings.camera_heartbeat_seconds:
                 self._camera_heartbeats()
                 last_cameras = now
