@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from ..domain.models import CameraConfig
+from ..domain.models import CameraConfig, SourceType
 from .capture_worker import CaptureWorker
 from .source_builder import build_source
 
