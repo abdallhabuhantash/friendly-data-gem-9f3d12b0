@@ -28,13 +28,15 @@ export const Route = createFileRoute("/")({
     // router lands on the root error boundary. Send the visitor to /login, which
     // explains exactly what is missing.
     if (!hasPublicSupabaseConfig()) throw redirect({ to: "/login" });
+    let signedIn = false;
     try {
       const { data } = await supabase.auth.getSession();
-      throw redirect({ to: data.session ? "/dashboard" : "/login" });
-    } catch (error) {
-      if (error != null && typeof error === "object" && "to" in error) throw error;
-      throw redirect({ to: "/login" });
+      signedIn = data.session !== null;
+    } catch {
+      signedIn = false;
     }
+    throw redirect({ to: signedIn ? "/dashboard" : "/login" });
+
   },
   component: () => null,
 });
