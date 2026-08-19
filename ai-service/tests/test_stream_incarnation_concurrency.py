@@ -117,6 +117,13 @@ class Harness:
         self.stream_hub = StreamHub()
         self._frame_gate = FrameGate()
         self._inference_fps: dict[str, float] = {}
+        self._analysis_error: dict[str, str] = {}
+        self._frames_seen: dict[str, int] = {}
+        self._frames_analysed: dict[str, int] = {}
+        self._last_analysis_at: dict[str, float] = {}
+        self._skip_reason: dict[str, str] = {}
+        self._analysis_started_at: dict[str, float] = {}
+        self._stall_logged_at: dict[str, float] = {}
         self._processed_frames: dict[str, int] = {}
         self._fps_window: dict[str, tuple[float, int]] = {}
         self._seen_generation: dict[str, int] = dict(generations)
