@@ -133,15 +133,22 @@ class SupabaseRepository:
         )
 
     def cameras(self, operation_mode: str) -> list[CameraConfig]:
-        """Active, AI-enabled cameras matching the current operation mode."""
+        """Active cameras matching the current operation mode.
+
+        `ai_enabled` is deliberately NOT filtered here: connectivity is a
+        separate capability from inference. A camera with AI switched off must
+        still be captured so its real online/offline state and heartbeat are
+        truthful; the orchestrator alone decides whether to run inference on it
+        (see `CameraConfig.ai_enabled`).
+        """
         response = (
             self._client.table("cameras")
             .select("*")
             .eq("active", True)
-            .eq("ai_enabled", True)
             .eq("is_demo", operation_mode == "demo")
             .execute()
         )
+
         cameras: list[CameraConfig] = []
         for row in response.data or []:
             try:
