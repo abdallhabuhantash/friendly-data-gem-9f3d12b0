@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { createFirstAdministrator, needsBootstrap } from "@/lib/bootstrap-admin.functions";
+import {
+  MISSING_PUBLIC_SUPABASE_CONFIG_MESSAGE,
+  hasPublicSupabaseConfig,
+} from "@/lib/supabase-config";
 
 export const Route = createFileRoute("/login")({
   ssr: false,
@@ -26,8 +30,44 @@ export const Route = createFileRoute("/login")({
       },
     ],
   }),
-  component: LoginPage,
+  component: LoginRoute,
 });
+
+/**
+ * The sign-in form touches the Supabase browser client (via useAuth), which
+ * throws when public backend config is absent. Gate it here so a misconfigured
+ * local checkout gets an explicit, actionable message instead of the root error
+ * boundary.
+ */
+function LoginRoute() {
+  if (!hasPublicSupabaseConfig()) return <MissingConfigNotice />;
+  return <LoginPage />;
+}
+
+function MissingConfigNotice() {
+  return (
+    <main className="hud-grid flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="panel w-full max-w-md space-y-3 p-4">
+        <div className="flex items-center gap-2.5">
+          <div className="grid size-10 place-items-center rounded-[3px] border border-primary/50 bg-primary/10 text-primary">
+            <ScanEye className="size-5" />
+          </div>
+          <div className="leading-tight">
+            <p className="font-mono text-base tracking-[0.16em] text-foreground">VIGILANT EYE</p>
+            <p className="label-tech">Configuration required</p>
+          </div>
+        </div>
+        <p className="font-mono text-xs text-muted-foreground">
+          {MISSING_PUBLIC_SUPABASE_CONFIG_MESSAGE}
+        </p>
+        <p className="font-mono text-[11px] text-muted-foreground">
+          See .env.example in the repository root for the full list of local variables. The
+          service-role key is not required to sign in.
+        </p>
+      </div>
+    </main>
+  );
+}
 
 function LoginPage() {
   const navigate = useNavigate();
