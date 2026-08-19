@@ -1,5 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { hasPublicSupabaseConfig } from "@/lib/supabase-config";
+
 
 export const Route = createFileRoute("/")({
   ssr: false,
@@ -22,8 +24,20 @@ export const Route = createFileRoute("/")({
     ],
   }),
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getSession();
-    throw redirect({ to: data.session ? "/dashboard" : "/login" });
+    // Without public backend config, touching the Supabase client throws and the
+    // router lands on the root error boundary. Send the visitor to /login, which
+    // explains exactly what is missing.
+    if (!hasPublicSupabaseConfig()) throw redirect({ to: "/login" });
+    let signedIn = false;
+    try {
+      const { data } = await supabase.auth.getSession();
+      signedIn = data.session !== null;
+    } catch {
+      signedIn = false;
+    }
+    throw redirect({ to: signedIn ? "/dashboard" : "/login" });
+
   },
   component: () => null,
 });
+

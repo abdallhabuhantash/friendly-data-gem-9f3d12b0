@@ -6,11 +6,18 @@ import { z } from "zod";
  * It refuses to run as soon as any account exists — this is not registration.
  */
 export const needsBootstrap = createServerFn({ method: "GET" }).handler(async () => {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { count } = await supabaseAdmin
-    .from("profiles")
-    .select("id", { count: "exact", head: true });
-  return { needsBootstrap: (count ?? 0) === 0 };
+  // The privileged client needs SUPABASE_SERVICE_ROLE_KEY, which is absent in a
+  // local checkout of a Lovable Cloud-managed backend. That must not break the
+  // login page: report "no bootstrap offered" instead of failing the request.
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { count } = await supabaseAdmin
+      .from("profiles")
+      .select("id", { count: "exact", head: true });
+    return { needsBootstrap: (count ?? 0) === 0, privilegedAccess: true };
+  } catch {
+    return { needsBootstrap: false, privilegedAccess: false };
+  }
 });
 
 export const createFirstAdministrator = createServerFn({ method: "POST" })

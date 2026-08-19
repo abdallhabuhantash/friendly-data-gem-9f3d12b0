@@ -1,13 +1,22 @@
 import { Outlet, createFileRoute, redirect, useRouterState } from "@tanstack/react-router";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { supabase } from "@/integrations/supabase/client";
+import { hasPublicSupabaseConfig } from "@/lib/supabase-config";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/login" });
-    return { user: data.user };
+    // Missing public backend config must land on /login (which explains it),
+    // never on the root error boundary.
+    if (!hasPublicSupabaseConfig()) throw redirect({ to: "/login" });
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) throw redirect({ to: "/login" });
+      return { user: data.user };
+    } catch (caught) {
+      if (caught != null && typeof caught === "object" && "isRedirect" in caught) throw caught;
+      throw redirect({ to: "/login" });
+    }
   },
   component: AuthenticatedLayout,
 });
