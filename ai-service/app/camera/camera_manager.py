@@ -126,7 +126,7 @@ class CameraManager:
                 already_running = camera_id in self._workers
             if already_running:
                 continue
-            username, password = self._credentials.get(camera_id)
+            username, password = self._credentials.get(camera_id, camera.host)
             source = build_source(
                 camera,
                 username=username,
