@@ -45,7 +45,13 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
 }
 
 /** Operational state of one camera's annotated stream, as currently measured. */
-export type StreamState = "live" | "stalled" | "camera_offline" | "awaiting_service";
+export type StreamState =
+  | "live"
+  | "stalled"
+  | "camera_offline"
+  | "awaiting_service"
+  /** The configured AI service endpoint cannot be reached from this console. */
+  | "service_unreachable";
 
 export interface StreamReadiness {
   state: StreamState;
@@ -59,6 +65,7 @@ const LABELS: Record<StreamState, string> = {
   stalled: "STREAM STALLED · AWAITING LIVE FRAMES",
   camera_offline: "NO SIGNAL · CAMERA OFFLINE",
   awaiting_service: "AWAITING AI SERVICE",
+  service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
 
 const readiness = (state: StreamState): StreamReadiness => ({
