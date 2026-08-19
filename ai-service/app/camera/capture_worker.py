@@ -8,6 +8,7 @@ never block the others.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -23,6 +24,18 @@ logger = logging.getLogger(__name__)
 RECONNECT_DELAYS = (1.0, 2.0, 5.0, 10.0)
 
 
+def ensure_rtsp_tcp_transport() -> None:
+    """Use reliable RTSP-over-TCP unless the operator explicitly chose otherwise.
+
+    OpenCV's FFmpeg backend may otherwise negotiate UDP. That commonly opens in
+    VLC but produces no frames on a directly connected Windows camera network
+    because return UDP media is filtered or routed differently. The OpenCV
+    option is process-wide and must exist before ``VideoCapture`` is created.
+    An explicit operator value is always preserved.
+    """
+    os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+
+
 @dataclass
 class CaptureStats:
     connected: bool = False
@@ -36,10 +49,19 @@ class CaptureStats:
 class CaptureWorker:
     """Reads a single source and publishes only the most recent frame."""
 
-    def __init__(self, camera_id: str, camera_name: str, source: CaptureSource) -> None:
+    def __init__(
+        self,
+        camera_id: str,
+        camera_name: str,
+        source: CaptureSource,
+        *,
+        credentials_configured: bool = False,
+    ) -> None:
         self.camera_id = camera_id
         self.camera_name = camera_name
         self.source = source
+        # Safe diagnostic only: never contains or reveals either credential.
+        self.credentials_configured = bool(credentials_configured)
         self.stats = CaptureStats()
         self._frame = None
         self._sequence = 0
@@ -93,6 +115,7 @@ class CaptureWorker:
     # --- capture loop -----------------------------------------------------
     def _open(self):
         if self.source.kind == "rtsp":
+            ensure_rtsp_tcp_transport()
             capture = cv2.VideoCapture(self.source.url, cv2.CAP_FFMPEG)
         else:
             capture = cv2.VideoCapture(self.source.url)

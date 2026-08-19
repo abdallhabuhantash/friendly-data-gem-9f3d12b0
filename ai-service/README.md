@@ -37,7 +37,7 @@ Fill in `.env`:
 - `DEMO_VIDEO_PATH` — an MP4 to use while the console is in Demo mode.
 
 Camera credentials go in `secrets/cameras.json` (git-ignored), keyed by camera
-id — see `secrets/cameras.example.json`. Set
+id or host/IP — see `secrets/cameras.example.json`. Set
 `USE_SUPABASE_CAMERA_CREDENTIALS=true` to fall back to the service-role-only
 `camera_credentials` table.
 
@@ -63,6 +63,20 @@ Endpoints:
 2. Store the same `AI_SERVICE_KEY` value as the web app's `AI_SERVICE_KEY`
    secret so the stream proxy can authenticate.
 3. Enable the mobile phone rule and assign cameras.
+
+The database heartbeat path is outbound from Python to the published web relay;
+it does not require the cloud app to reach the laptop. Live `/status` and MJPEG
+reads travel in the opposite direction: a published cloud app cannot reach
+`127.0.0.1`, `.local` hostnames, or a private LAN address unless the AI service
+is exposed through an operator-controlled reachable HTTPS endpoint. This does
+not prevent camera heartbeat writes, but it does prevent cloud-side live stream
+health and viewing.
+
+At startup, the service logs a safe camera diagnostic for each configured row:
+the discovered camera count, whether credentials were found (boolean only), and
+whether OpenCV connected. Authenticated `GET /status` also reports these safe
+facts plus the last generic capture error; it never returns a username,
+password, or RTSP URL.
 
 ## Behaviour guarantees
 

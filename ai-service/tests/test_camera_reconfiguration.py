@@ -22,10 +22,11 @@ CAM_B = "22222222-2222-4222-8222-222222222222"
 
 
 class FakeWorker:
-    def __init__(self, camera_id, camera_name, source):
+    def __init__(self, camera_id, camera_name, source, *, credentials_configured=False):
         self.camera_id = camera_id
         self.camera_name = camera_name
         self.source = source
+        self.credentials_configured = credentials_configured
         self.started = False
         self.stopped = False
 
@@ -43,7 +44,7 @@ def manager(monkeypatch):
         camera_manager_module, "build_source", lambda camera, **kw: SimpleNamespace(kind="fake")
     )
     settings = SimpleNamespace(demo_video_for=lambda _cid: None, demo_video_loop=True)
-    credentials = SimpleNamespace(get=lambda _cid: (None, None))
+    credentials = SimpleNamespace(get=lambda _cid, _host=None: (None, None))
     return CameraManager(settings, credentials)
 
 
