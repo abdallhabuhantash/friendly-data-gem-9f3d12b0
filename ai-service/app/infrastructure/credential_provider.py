@@ -21,6 +21,20 @@ class CredentialSource(Protocol):
     def get(self, camera_id: str, host: Optional[str] = None) -> Credentials: ...
 
 
+def _decode_json_file(path: Path) -> object:
+    """Reads JSON written by common Windows tools without exposing its content.
+
+    Windows PowerShell may prefix UTF-8 output with a BOM. Older PowerShell
+    versions may also write UTF-16. ``Path.read_text(encoding="utf-8")`` leaves
+    a UTF-8 BOM as U+FEFF, which ``json.loads`` rejects. Decode from bytes so
+    BOM-aware codecs can remove the marker before parsing.
+    """
+    payload = path.read_bytes()
+    if payload.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return json.loads(payload.decode("utf-16"))
+    return json.loads(payload.decode("utf-8-sig"))
+
+
 def _normalise_key(key: str) -> str:
     """Normalises a credential key so operator formatting cannot break lookup.
 
@@ -71,7 +85,7 @@ class FileCredentialProvider:
         if mtime == self._mtime:
             return
         try:
-            parsed = json.loads(self._path.read_text(encoding="utf-8"))
+            parsed = _decode_json_file(self._path)
             raw = parsed if isinstance(parsed, dict) else {}
             data: dict[str, dict[str, str]] = {}
             for key, value in raw.items():
@@ -88,7 +102,7 @@ class FileCredentialProvider:
                 len(self._data),
                 self._path,
             )
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             # Log the failure kind only, never the file content.
             logger.error("Unable to read camera credentials file: %s", type(exc).__name__)
             self._data = {}

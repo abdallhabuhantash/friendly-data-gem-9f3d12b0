@@ -13,6 +13,7 @@ import logging
 import pytest
 
 from app.camera.source_builder import build_rtsp_url, redact
+from app.config import BASE_DIR, Settings
 from app.domain.models import CameraConfig, SourceType
 from app.infrastructure.credential_provider import FileCredentialProvider
 
@@ -26,6 +27,24 @@ def _write(tmp_path, payload) -> FileCredentialProvider:
 def test_lookup_by_host(tmp_path):
     provider = _write(tmp_path, {"192.168.1.64": {"username": "u", "password": "p"}})
     assert provider.get("c3689bab", "192.168.1.64") == ("u", "p")
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+def test_reads_windows_bom_encoded_json(tmp_path, encoding):
+    path = tmp_path / "cameras.json"
+    payload = {"192.168.1.64": {"username": "u", "password": "p"}}
+    path.write_text(json.dumps(payload), encoding=encoding)
+
+    provider = FileCredentialProvider(path)
+
+    assert provider.get("cam-1", "192.168.1.64") == ("u", "p")
+
+
+def test_default_credentials_path_is_anchored_to_ai_service(monkeypatch):
+    monkeypatch.delenv("CAMERA_CREDENTIALS_FILE", raising=False)
+    settings = Settings(_env_file=None)
+
+    assert settings.credentials_path == BASE_DIR / "secrets" / "cameras.json"
 
 
 @pytest.mark.parametrize(
