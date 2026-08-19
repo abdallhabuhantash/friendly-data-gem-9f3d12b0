@@ -20,6 +20,10 @@ export const getStreamHealth = createServerFn({ method: "GET" })
     // Bounded: the local /status endpoint is fast, and a hung request must
     // surface as "health unavailable" rather than keeping the previous answer.
     const outcome = await aiServiceCall("/status", "GET", STATUS_TIMEOUT_MS);
-    if (!outcome.ok) return { ok: false as const, message: outcome.message };
+    if (!outcome.ok) {
+      // The reachability class (never the URL itself) travels to the console so
+      // the operator is told to fix Settings instead of waiting forever.
+      return { ok: false as const, message: outcome.message, reach: outcome.reach };
+    }
     return { ok: true as const, cameras: minimalCameraStreamHealth(outcome.body) };
   });
