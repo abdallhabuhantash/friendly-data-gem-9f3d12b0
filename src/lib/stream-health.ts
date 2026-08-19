@@ -15,10 +15,14 @@ export interface CameraStreamHealth {
   id: string;
   connected: boolean;
   streaming: boolean;
-  /** Analysis switched on for this camera in the console. */
-  analysisEnabled: boolean;
+  /**
+   * Analysis switched on for this camera. Absent when the service does not
+   * report it, which is never treated as "disabled".
+   */
+  analysisEnabled?: boolean;
   /** Failure class of the last analysis attempt, when one failed. */
-  analysisError: string | null;
+  analysisError?: string | null;
+
 }
 
 export type StreamHealthReply =
