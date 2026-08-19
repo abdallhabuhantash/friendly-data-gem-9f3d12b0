@@ -143,7 +143,10 @@ describe("measured stream health", () => {
         "nonsense",
       ],
     });
-    expect(cameras).toEqual([{ id: C1, connected: true, streaming: true }]);
+    expect(cameras).toEqual([
+      { id: C1, connected: true, streaming: true, analysisEnabled: true, analysisError: null },
+    ]);
+
     expect(minimalCameraStreamHealth(null)).toEqual([]);
   });
 });
