@@ -458,6 +458,17 @@ class Orchestrator:
         self.stream_hub.drop(camera_id)
         self._inference_fps.pop(camera_id, None)
         self._analysis_error.pop(camera_id, None)
+        for counters in (
+            self._frames_seen,
+            self._frames_analysed,
+            self._last_analysis_at,
+            self._skip_reason,
+            self._analysis_started_at,
+            self._stall_logged_at,
+        ):
+            counters.pop(camera_id, None)
+
+
 
         self._processed_frames.pop(camera_id, None)
         self._fps_window.pop(camera_id, None)
