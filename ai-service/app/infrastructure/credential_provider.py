@@ -18,11 +18,16 @@ Credentials = tuple[Optional[str], Optional[str]]
 
 
 class CredentialSource(Protocol):
-    def get(self, camera_id: str) -> Credentials: ...
+    def get(self, camera_id: str, host: Optional[str] = None) -> Credentials: ...
 
 
 class FileCredentialProvider:
-    """Reads `secrets/cameras.json` and caches it until the file changes."""
+    """Reads `secrets/cameras.json` and caches it until the file changes.
+
+    Entries may be keyed by the camera's UUID (preferred, unambiguous) or by
+    its host/IP, so a local operator can configure a camera before looking up
+    its record id. The UUID key always wins when both are present.
+    """
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -46,9 +51,13 @@ class FileCredentialProvider:
             logger.error("Unable to read camera credentials file: %s", type(exc).__name__)
             self._data = {}
 
-    def get(self, camera_id: str) -> Credentials:
+    def get(self, camera_id: str, host: Optional[str] = None) -> Credentials:
         self._load()
-        entry = self._data.get(camera_id) or {}
+        entry = self._data.get(camera_id)
+        if not isinstance(entry, dict) and host:
+            candidate = self._data.get(host)
+            entry = candidate if isinstance(candidate, dict) else None
+        entry = entry or {}
         return entry.get("username"), entry.get("password")
 
 
@@ -58,7 +67,7 @@ class SupabaseCredentialProvider:
     def __init__(self, repository) -> None:  # noqa: ANN001 - avoids import cycle
         self._repository = repository
 
-    def get(self, camera_id: str) -> Credentials:
+    def get(self, camera_id: str, host: Optional[str] = None) -> Credentials:
         try:
             return self._repository.camera_credentials(camera_id)
         except Exception as exc:  # pragma: no cover - network failure path
@@ -72,9 +81,9 @@ class ChainedCredentialProvider:
     def __init__(self, sources: list[CredentialSource]) -> None:
         self._sources = sources
 
-    def get(self, camera_id: str) -> Credentials:
+    def get(self, camera_id: str, host: Optional[str] = None) -> Credentials:
         for source in self._sources:
-            username, password = source.get(camera_id)
+            username, password = source.get(camera_id, host)
             if username or password:
                 return username, password
         return (None, None)
