@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from ..domain.models import CameraConfig
+from ..domain.models import CameraConfig, SourceType
 from .capture_worker import CaptureWorker
 from .source_builder import build_source
 
@@ -135,6 +135,18 @@ class CameraManager:
                 camera.source_type.value,
                 "configured" if credentials_configured else "not configured",
             )
+            if camera.source_type is not SourceType.DEMO and not credentials_configured:
+                # Never logs the values: only that no entry matched this camera.
+                logger.warning(
+                    "No credentials found for camera %s (%s) by record id or host %s; "
+                    "the RTSP URL will be built without authentication and most "
+                    "cameras answer DESCRIBE with 401 Unauthorized. Add an entry "
+                    "keyed by the camera record id or its host to the credentials file.",
+                    camera.name,
+                    camera_id,
+                    camera.host,
+                )
+
             source = build_source(
                 camera,
                 username=username,
