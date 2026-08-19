@@ -511,25 +511,52 @@ class Orchestrator:
         # an artificial ceiling. No frame queue exists either way.
         max_fps = float(self.settings.inference_max_fps)
         min_interval = (1.0 / max_fps) if max_fps > 0 else 0.0
+        logger.info("Inference loop started for camera %s", camera_id)
 
         while not self._stop.is_set():
             runtime = self.cameras.snapshot(camera_id)
             if runtime is None:
-                return
+                # A missing snapshot is only fatal when the camera really is no
+                # longer active. While it IS active this is a startup/replacement
+                # race: exiting here used to kill the only inference thread of a
+                # running camera until the next configuration refresh, which is
+                # exactly the "connected but 0.0 FPS forever" failure.
+                if camera_id not in set(self.cameras.active):
+                    logger.info(
+                        "Inference loop for camera %s exiting: camera no longer active",
+                        camera_id,
+                    )
+                    return
+                self._skip_reason[camera_id] = "awaiting_camera_runtime"
+                self._maybe_log_stall(camera_id, camera_id)
+                self._stop.wait(0.2)
+                continue
 
             if self._seen_generation.get(camera_id) != runtime.generation:
                 # The replacement worker may become visible before the control
                 # thread reaches its cleanup: whoever arrives first performs the
                 # transition, under this camera's lifecycle lock.
                 if self._transition_generation(camera_id) is None:
-                    return
+                    # Same reasoning as above: only a camera that is genuinely
+                    # gone ends this loop.
+                    if camera_id not in set(self.cameras.active):
+                        logger.info(
+                            "Inference loop for camera %s exiting: no running incarnation",
+                            camera_id,
+                        )
+                        return
+                    self._skip_reason[camera_id] = "awaiting_camera_runtime"
+                    self._stop.wait(0.2)
+                    continue
                 continue
 
             if not runtime.config.ai_enabled:
                 # Capture (and therefore the truthful heartbeat) keeps running,
                 # but no inference is performed on this camera.
+                self._skip_reason[camera_id] = "ai_disabled_for_camera"
                 self._stop.wait(0.5)
                 continue
+
 
             cycle_start = time.monotonic()
             frame, sequence = runtime.worker.latest_frame_with_sequence()
