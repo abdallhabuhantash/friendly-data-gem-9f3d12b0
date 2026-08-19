@@ -1144,7 +1144,20 @@ class Orchestrator:
         return status
 
     # --- introspection ----------------------------------------------------
+    def _camera_ai_enabled(self, camera_id: str) -> bool:
+        """Whether analysis is currently enabled for this exact camera.
+
+        Read from the live runtime configuration, so a camera whose analysis was
+        switched off in the console is reported as such instead of appearing as
+        an unexplained stalled stream.
+        """
+        runtime = self.cameras.snapshot(camera_id)
+        if runtime is None:
+            return False
+        return bool(runtime.config.ai_enabled)
+
     def status(self) -> dict:
+
         return {
             "version": self.settings.service_version,
             "operation_mode": self.system.operation_mode,
