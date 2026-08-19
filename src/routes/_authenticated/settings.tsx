@@ -165,9 +165,10 @@ function SettingsPage() {
               <Input
                 value={draft.aiServiceUrl}
                 onChange={(event) => set("aiServiceUrl", event.target.value)}
-                placeholder="http://192.168.1.50:8000"
+                placeholder="https://your-tunnel.example.com"
                 className="h-8 font-mono text-xs"
               />
+              <EndpointReachNotice value={draft.aiServiceUrl} />
             </Field>
             <Field label="WebSocket URL" error={errors["websocketUrl"]}>
               <Input
