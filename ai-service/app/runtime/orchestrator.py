@@ -444,6 +444,8 @@ class Orchestrator:
         self.registry.reset(camera_id)
         self.stream_hub.drop(camera_id)
         self._inference_fps.pop(camera_id, None)
+        self._analysis_error.pop(camera_id, None)
+
         self._processed_frames.pop(camera_id, None)
         self._fps_window.pop(camera_id, None)
         self._frame_gate.reset(camera_id)
