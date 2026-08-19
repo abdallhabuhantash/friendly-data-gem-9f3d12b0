@@ -57,7 +57,8 @@ class FileCredentialProvider:
         if not isinstance(entry, dict) and host:
             candidate = self._data.get(host)
             entry = candidate if isinstance(candidate, dict) else None
-        entry = entry or {}
+        if not isinstance(entry, dict):
+            entry = {}
         return entry.get("username"), entry.get("password")
 
 
