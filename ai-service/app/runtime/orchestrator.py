@@ -213,6 +213,11 @@ class Orchestrator:
         self._threads: dict[str, threading.Thread] = {}
         self._control: Optional[threading.Thread] = None
         self._inference_fps: dict[str, float] = {}
+        # Truthful per-camera analysis diagnostics: why a CONNECTED camera is
+        # currently publishing no annotated frames. Never invented, never
+        # optimistic: set from an actual failure, cleared by an actual success.
+        self._analysis_error: dict[str, str] = {}
+
         self._frame_gate = FrameGate()
         # Explicit Start/End versus automatic reconciliation: the lock serialises
         # the two, the set names the session currently transitioning so a sync
@@ -439,6 +444,8 @@ class Orchestrator:
         self.registry.reset(camera_id)
         self.stream_hub.drop(camera_id)
         self._inference_fps.pop(camera_id, None)
+        self._analysis_error.pop(camera_id, None)
+
         self._processed_frames.pop(camera_id, None)
         self._fps_window.pop(camera_id, None)
         self._frame_gate.reset(camera_id)
@@ -510,13 +517,21 @@ class Orchestrator:
             try:
                 analysed = self._guarded_process(runtime, frame, sequence)
             except Exception as exc:  # one camera never takes down the service
+                # The failure class (never a stack trace, path or credential) is
+                # kept so the console can tell the operator WHY frames stopped
+                # instead of showing an endless "awaiting live frames".
+                self._analysis_error[camera_id] = type(exc).__name__
                 logger.exception("Inference failed for camera %s: %s", runtime.config.name, exc)
                 self._stop.wait(0.5)
                 continue
 
+            if analysed:
+                self._analysis_error.pop(camera_id, None)
+
             if not analysed:
                 self._stop.wait(0.005)
                 continue
+
 
             remaining = min_interval - (time.monotonic() - cycle_start)
             if remaining > 0:
@@ -1129,7 +1144,20 @@ class Orchestrator:
         return status
 
     # --- introspection ----------------------------------------------------
+    def _camera_ai_enabled(self, camera_id: str) -> bool:
+        """Whether analysis is currently enabled for this exact camera.
+
+        Read from the live runtime configuration, so a camera whose analysis was
+        switched off in the console is reported as such instead of appearing as
+        an unexplained stalled stream.
+        """
+        runtime = self.cameras.snapshot(camera_id)
+        if runtime is None:
+            return False
+        return bool(runtime.config.ai_enabled)
+
     def status(self) -> dict:
+
         return {
             "version": self.settings.service_version,
             "operation_mode": self.system.operation_mode,
@@ -1144,6 +1172,11 @@ class Orchestrator:
                     "capture_fps": round(worker.stats.fps, 2),
                     "inference_fps": round(self._inference_fps.get(camera_id, 0.0), 2),
                     "streaming": self.stream_hub.has(camera_id),
+                    # Why a connected camera may not be publishing annotated
+                    # frames. Both values are measured, never assumed.
+                    "ai_enabled": self._camera_ai_enabled(camera_id),
+                    "analysis_error": self._analysis_error.get(camera_id),
+
                     "credentials_configured": bool(
                         getattr(worker, "credentials_configured", False)
                     ),

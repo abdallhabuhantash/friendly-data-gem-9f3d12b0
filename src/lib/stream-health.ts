@@ -15,6 +15,14 @@ export interface CameraStreamHealth {
   id: string;
   connected: boolean;
   streaming: boolean;
+  /**
+   * Analysis switched on for this camera. Absent when the service does not
+   * report it, which is never treated as "disabled".
+   */
+  analysisEnabled?: boolean;
+  /** Failure class of the last analysis attempt, when one failed. */
+  analysisError?: string | null;
+
 }
 
 export type StreamHealthReply =
@@ -35,14 +43,21 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
     const entry = raw as Record<string, unknown>;
     const id = entry["id"];
     if (typeof id !== "string" || id === "") continue;
+    const analysisError = entry["analysis_error"];
     result.push({
       id,
       connected: entry["connected"] === true,
       streaming: entry["streaming"] === true,
+      // An older service that does not report the field is not accused of
+      // having analysis disabled; only an explicit `false` is.
+      analysisEnabled: entry["ai_enabled"] !== false,
+      analysisError:
+        typeof analysisError === "string" && analysisError !== "" ? analysisError : null,
     });
   }
   return result;
 }
+
 
 /** Operational state of one camera's annotated stream, as currently measured. */
 export type StreamState =
@@ -50,6 +65,10 @@ export type StreamState =
   | "stalled"
   | "camera_offline"
   | "awaiting_service"
+  /** Camera is connected but analysis is switched off for it. */
+  | "analysis_disabled"
+  /** Analysis is failing on the AI service, so no annotated frames exist. */
+  | "analysis_failed"
   /** The configured AI service endpoint cannot be reached from this console. */
   | "service_unreachable";
 
@@ -65,8 +84,11 @@ const LABELS: Record<StreamState, string> = {
   stalled: "STREAM STALLED · AWAITING LIVE FRAMES",
   camera_offline: "NO SIGNAL · CAMERA OFFLINE",
   awaiting_service: "AWAITING AI SERVICE",
+  analysis_disabled: "AI ANALYSIS DISABLED FOR THIS CAMERA",
+  analysis_failed: "AI ANALYSIS FAILING · SEE AI SERVICE LOGS",
   service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
+
 
 const readiness = (state: StreamState): StreamReadiness => ({
   state,
@@ -128,8 +150,13 @@ export function streamReadiness(input: {
   const entry = input.health.cameras.find((camera) => camera.id === input.cameraId);
   if (!entry) return readiness("awaiting_service");
   if (!entry.connected) return readiness("camera_offline");
-  if (!entry.streaming) return readiness("stalled");
-  return readiness("live");
+  if (entry.streaming) return readiness("live");
+  // The camera IS delivering frames but no annotated frame exists. Name the
+  // measured reason instead of the generic "awaiting live frames".
+  if (entry.analysisEnabled === false) return readiness("analysis_disabled");
+  if (entry.analysisError) return readiness("analysis_failed");
+  return readiness("stalled");
+
 }
 
 /** Bounded reconnect backoff: 1s → 2s → 5s → 10s (capped). */
