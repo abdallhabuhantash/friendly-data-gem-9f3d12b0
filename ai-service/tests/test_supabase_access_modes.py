@@ -503,3 +503,79 @@ def test_service_role_mode_performs_group_b_directly(tmp_path: Path):
     assert client.rpc_calls == [
         ("allocate_session_subject_number", {"_exam_session_id": "sess-1"})
     ]
+
+
+# --- 7. new opaque publishable key format (sb_publishable_*) --------------
+REQUIREMENTS = Path(__file__).resolve().parents[1] / "requirements.txt"
+
+_LEGACY_JWT_KEY_PATTERN = r"^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$"
+NEW_FORMAT_KEY = "sb_publishable_EXAMPLEplaceholderKEY_notasecret"
+
+
+def test_new_format_key_is_not_jwt_shaped_so_the_pin_must_stay_modern():
+    """Guards the exact root cause: supabase<2.16.0 required a JWT-shaped key."""
+    import re
+
+    assert re.match(_LEGACY_JWT_KEY_PATTERN, NEW_FORMAT_KEY) is None
+
+
+def test_requirements_pin_supports_the_new_api_key_format():
+    line = next(
+        raw.strip()
+        for raw in REQUIREMENTS.read_text(encoding="utf-8").splitlines()
+        if raw.strip().startswith("supabase")
+    )
+    assert line == "supabase>=2.16.0,<3.0.0"
+
+
+def test_installed_supabase_client_accepts_a_new_format_key():
+    """Skips when the real client is not installed (pure-logic environments)."""
+    supabase = pytest.importorskip("supabase")
+    if isinstance(supabase, types.ModuleType) and type(supabase).__name__ == "_StubModule":
+        pytest.skip("real supabase client not installed")
+    metadata = pytest.importorskip("importlib.metadata")
+    version = tuple(int(p) for p in metadata.version("supabase").split(".")[:2])
+    assert version >= (2, 16)
+
+
+def test_cloud_mode_constructs_with_a_new_format_publishable_key(monkeypatch):
+    class _Auth:
+        def sign_in_with_password(self, credentials):  # noqa: ANN001
+            self.credentials = credentials
+
+    class _Client(FakeClient):
+        def __init__(self):
+            super().__init__()
+            self.auth = _Auth()
+
+    seen: dict = {}
+
+    def fake_create_client(url, key):  # noqa: ANN001
+        seen["key"] = key
+        return _Client()
+
+    monkeypatch.setattr(
+        "app.infrastructure.supabase_repository.create_client", fake_create_client
+    )
+    repo = SupabaseRepository(
+        "https://example.supabase.co",
+        publishable_key=NEW_FORMAT_KEY,
+        service_account_email="ai@example.com",
+        service_account_password="placeholder",
+        relay=FakeRelay(),
+    )
+    assert seen["key"] == NEW_FORMAT_KEY
+    assert repo.access_mode == "cloud_relay"
+
+
+def test_settings_accept_a_new_format_publishable_key(isolated_env):
+    settings = settings_for(
+        supabase_url="https://example.supabase.co",
+        supabase_publishable_key=NEW_FORMAT_KEY,
+        supabase_service_account_email="ai@example.com",
+        supabase_service_account_password="placeholder",
+        web_app_base_url="https://app.example.com",
+        ai_service_key="shared",
+    )
+    assert settings.supabase_access_mode == "cloud_relay"
+    assert settings.validate_runtime() == []
