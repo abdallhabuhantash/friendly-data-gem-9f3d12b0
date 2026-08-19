@@ -519,13 +519,39 @@ def test_new_format_key_is_not_jwt_shaped_so_the_pin_must_stay_modern():
     assert re.match(_LEGACY_JWT_KEY_PATTERN, NEW_FORMAT_KEY) is None
 
 
+def _requirement_pins() -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for raw in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "==" not in line:
+            continue
+        name, version = line.split("==", 1)
+        pins[name.strip()] = version.strip()
+    return pins
+
+
+SUPABASE_BUNDLE = (
+    "supabase",
+    "postgrest",
+    "storage3",
+    "realtime",
+    "supabase-auth",
+    "supabase-functions",
+)
+
+
 def test_requirements_pin_supports_the_new_api_key_format():
-    line = next(
-        raw.strip()
-        for raw in REQUIREMENTS.read_text(encoding="utf-8").splitlines()
-        if raw.strip().startswith("supabase")
-    )
-    assert line == "supabase>=2.16.0,<3.0.0"
+    pins = _requirement_pins()
+    version = tuple(int(p) for p in pins["supabase"].split(".")[:2])
+    assert version >= (2, 16)
+
+
+def test_requirements_pin_the_whole_supabase_client_bundle_together():
+    """Guards the stale-transitive root cause (postgrest without http_client)."""
+    pins = _requirement_pins()
+    missing = [name for name in SUPABASE_BUNDLE if name not in pins]
+    assert missing == []
+    assert len({pins[name] for name in SUPABASE_BUNDLE}) == 1
 
 
 def test_installed_supabase_client_accepts_a_new_format_key():
@@ -536,6 +562,19 @@ def test_installed_supabase_client_accepts_a_new_format_key():
     metadata = pytest.importorskip("importlib.metadata")
     version = tuple(int(p) for p in metadata.version("supabase").split(".")[:2])
     assert version >= (2, 16)
+
+
+def test_installed_postgrest_client_accepts_the_http_client_keyword():
+    """A stale postgrest (<1.1) has no http_client kwarg and breaks every read."""
+    pytest.importorskip("postgrest")
+    module = pytest.importorskip("postgrest._sync.client")
+    if type(module).__name__ == "_StubModule":
+        pytest.skip("real postgrest client not installed")
+    import inspect
+
+    signature = inspect.signature(module.SyncPostgrestClient.__init__)
+    assert "http_client" in signature.parameters
+
 
 
 def test_cloud_mode_constructs_with_a_new_format_publishable_key(monkeypatch):
