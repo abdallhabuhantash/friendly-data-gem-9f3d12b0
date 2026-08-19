@@ -532,18 +532,33 @@ def _requirement_pins() -> dict[str, str]:
 
 SUPABASE_BUNDLE = (
     "supabase",
+    "gotrue",
     "postgrest",
-    "storage3",
     "realtime",
-    "supabase-auth",
-    "supabase-functions",
+    "storage3",
+    "supafunc",
 )
+
+# Every one of these releases still supports pydantic 2.10.x. The 2.3x bundle
+# (storage3 2.31.0) requires pydantic>=2.11.7 and must never be pinned here
+# while the app pins pydantic==2.10.4.
+MAX_BUNDLE_VERSIONS = {
+    "supabase": (2, 16),
+    "gotrue": (2, 12),
+    "postgrest": (1, 1),
+    "realtime": (2, 5),
+    "storage3": (0, 12),
+    "supafunc": (0, 10),
+}
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split(".")[:2])
 
 
 def test_requirements_pin_supports_the_new_api_key_format():
     pins = _requirement_pins()
-    version = tuple(int(p) for p in pins["supabase"].split(".")[:2])
-    assert version >= (2, 16)
+    assert _version_tuple(pins["supabase"]) >= (2, 16)
 
 
 def test_requirements_pin_the_whole_supabase_client_bundle_together():
@@ -551,7 +566,20 @@ def test_requirements_pin_the_whole_supabase_client_bundle_together():
     pins = _requirement_pins()
     missing = [name for name in SUPABASE_BUNDLE if name not in pins]
     assert missing == []
-    assert len({pins[name] for name in SUPABASE_BUNDLE}) == 1
+    assert _version_tuple(pins["postgrest"]) >= (1, 1)  # has http_client=
+
+
+def test_supabase_bundle_stays_installable_with_the_pinned_pydantic():
+    """A bundle upgrade that drags in pydantic>=2.11.7 breaks a clean install."""
+    pins = _requirement_pins()
+    assert pins["pydantic"] == "2.10.4"
+    too_new = {
+        name: pins[name]
+        for name, ceiling in MAX_BUNDLE_VERSIONS.items()
+        if _version_tuple(pins[name]) > ceiling
+    }
+    assert too_new == {}
+
 
 
 def test_installed_supabase_client_accepts_a_new_format_key():
