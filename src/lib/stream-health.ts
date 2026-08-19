@@ -15,6 +15,10 @@ export interface CameraStreamHealth {
   id: string;
   connected: boolean;
   streaming: boolean;
+  /** Analysis switched on for this camera in the console. */
+  analysisEnabled: boolean;
+  /** Failure class of the last analysis attempt, when one failed. */
+  analysisError: string | null;
 }
 
 export type StreamHealthReply =
@@ -35,14 +39,21 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
     const entry = raw as Record<string, unknown>;
     const id = entry["id"];
     if (typeof id !== "string" || id === "") continue;
+    const analysisError = entry["analysis_error"];
     result.push({
       id,
       connected: entry["connected"] === true,
       streaming: entry["streaming"] === true,
+      // An older service that does not report the field is not accused of
+      // having analysis disabled; only an explicit `false` is.
+      analysisEnabled: entry["ai_enabled"] !== false,
+      analysisError:
+        typeof analysisError === "string" && analysisError !== "" ? analysisError : null,
     });
   }
   return result;
 }
+
 
 /** Operational state of one camera's annotated stream, as currently measured. */
 export type StreamState =
