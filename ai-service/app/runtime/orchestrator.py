@@ -213,6 +213,11 @@ class Orchestrator:
         self._threads: dict[str, threading.Thread] = {}
         self._control: Optional[threading.Thread] = None
         self._inference_fps: dict[str, float] = {}
+        # Truthful per-camera analysis diagnostics: why a CONNECTED camera is
+        # currently publishing no annotated frames. Never invented, never
+        # optimistic: set from an actual failure, cleared by an actual success.
+        self._analysis_error: dict[str, str] = {}
+
         self._frame_gate = FrameGate()
         # Explicit Start/End versus automatic reconciliation: the lock serialises
         # the two, the set names the session currently transitioning so a sync
