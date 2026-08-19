@@ -1,4 +1,4 @@
-import { createFileRoute, isRedirect, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { hasPublicSupabaseConfig } from "@/lib/supabase-config";
 
