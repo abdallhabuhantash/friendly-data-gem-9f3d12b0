@@ -142,6 +142,9 @@ const BADGES: Record<StreamState, { text: string; tone: ViewportTone }> = {
   awaiting_service: { text: "AWAITING AI SERVICE", tone: "muted" },
   analysis_disabled: { text: "AI ANALYSIS OFF", tone: "muted" },
   analysis_failed: { text: "AI ANALYSIS FAILING", tone: "error" },
+  analysis_not_running: { text: "ANALYSIS NOT RUNNING", tone: "error" },
+  analysis_slow: { text: "INFERENCE TOO SLOW", tone: "warning" },
+
   service_unreachable: { text: "AI SERVICE NOT REACHABLE", tone: "warning" },
 
 };
