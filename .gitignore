@@ -32,6 +32,9 @@ dist-ssr
 *.sw?
 
 # Environment / secrets
-.env
+# NOTE: the root .env holds only public client config (VITE_SUPABASE_URL /
+# VITE_SUPABASE_PUBLISHABLE_KEY / VITE_SUPABASE_PROJECT_ID) and MUST stay
+# tracked, otherwise deployed builds have no backend config and blank-screen.
 .env.*
 !.env.example
+!.env
