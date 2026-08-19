@@ -5,11 +5,24 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 httpx==0.28.1
-# 2.16.0 is the FIRST release that accepts the new opaque API-key formats
-# (sb_publishable_* / sb_secret_*). Every earlier release, including 2.11.0,
-# rejects them inside create_client() with "Invalid API key" because the key
-# had to match a JWT shape. Do not downgrade below 2.16.0.
-supabase>=2.16.0,<3.0.0
+# Supabase client set. Pinned as one mutually compatible bundle:
+#   * >=2.16.0 is required for the opaque API-key formats (sb_publishable_* /
+#     sb_secret_*); earlier releases reject them in create_client() because the
+#     key had to be JWT-shaped.
+#   * The sub-clients are pinned exactly because supabase >=2.16 passes
+#     http_client= to postgrest/storage3/functions. A stale transitive
+#     postgrest (e.g. 0.19.3 left over from supabase 2.11.0) raises
+#     "SyncPostgrestClient.__init__() got an unexpected keyword argument
+#     'http_client'" on the first table access. Explicit pins force pip to
+#     upgrade those leftovers instead of keeping them.
+# Do not loosen or downgrade these lines individually.
+supabase==2.31.0
+postgrest==2.31.0
+storage3==2.31.0
+realtime==2.31.0
+supabase-auth==2.31.0
+supabase-functions==2.31.0
+
 opencv-python==4.10.0.84
 numpy==1.26.4
 ultralytics==8.3.55
