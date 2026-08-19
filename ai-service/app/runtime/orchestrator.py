@@ -1159,6 +1159,11 @@ class Orchestrator:
                     "capture_fps": round(worker.stats.fps, 2),
                     "inference_fps": round(self._inference_fps.get(camera_id, 0.0), 2),
                     "streaming": self.stream_hub.has(camera_id),
+                    # Why a connected camera may not be publishing annotated
+                    # frames. Both values are measured, never assumed.
+                    "ai_enabled": self._camera_ai_enabled(camera_id),
+                    "analysis_error": self._analysis_error.get(camera_id),
+
                     "credentials_configured": bool(
                         getattr(worker, "credentials_configured", False)
                     ),
