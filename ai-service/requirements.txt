@@ -5,7 +5,11 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 httpx==0.28.1
-supabase==2.11.0
+# 2.16.0 is the FIRST release that accepts the new opaque API-key formats
+# (sb_publishable_* / sb_secret_*). Every earlier release, including 2.11.0,
+# rejects them inside create_client() with "Invalid API key" because the key
+# had to match a JWT shape. Do not downgrade below 2.16.0.
+supabase>=2.16.0,<3.0.0
 opencv-python==4.10.0.84
 numpy==1.26.4
 ultralytics==8.3.55
