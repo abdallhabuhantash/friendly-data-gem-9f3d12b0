@@ -515,13 +515,21 @@ class Orchestrator:
             try:
                 analysed = self._guarded_process(runtime, frame, sequence)
             except Exception as exc:  # one camera never takes down the service
+                # The failure class (never a stack trace, path or credential) is
+                # kept so the console can tell the operator WHY frames stopped
+                # instead of showing an endless "awaiting live frames".
+                self._analysis_error[camera_id] = type(exc).__name__
                 logger.exception("Inference failed for camera %s: %s", runtime.config.name, exc)
                 self._stop.wait(0.5)
                 continue
 
+            if analysed:
+                self._analysis_error.pop(camera_id, None)
+
             if not analysed:
                 self._stop.wait(0.005)
                 continue
+
 
             remaining = min_interval - (time.monotonic() - cycle_start)
             if remaining > 0:
