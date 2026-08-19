@@ -5,9 +5,18 @@
  * and is redacted out of anything the service echoes back. If the service is not
  * configured or not reachable, the truthful failure is reported and nothing is
  * assumed to have happened.
+ *
+ * Reachability is reported alongside the failure: the published cloud app cannot
+ * reach a loopback/LAN endpoint, and the console must say that plainly instead
+ * of implying the service is merely starting up.
  */
 
-export type AiServiceOutcome = { ok: true; body: unknown } | { ok: false; message: string };
+import { AI_ENDPOINT_GUIDANCE, AI_ENDPOINT_UNREACHABLE_MESSAGE, classifyAiEndpoint } from "./ai-endpoint";
+import type { AiEndpointReach } from "./ai-endpoint";
+
+export type AiServiceOutcome =
+  | { ok: true; body: unknown }
+  | { ok: false; message: string; reach: AiEndpointReach };
 
 export async function aiServiceCall(
   path: string,
@@ -27,22 +36,29 @@ export async function aiServiceCall(
     .maybeSingle();
 
   const base = (settings?.ai_service_url ?? "").trim().replace(/\/$/, "");
-  if (base === "") {
-    return { ok: false, message: "The AI service endpoint is not configured in Settings." };
+  const reach = classifyAiEndpoint(base);
+  if (reach === "unset") {
+    return {
+      ok: false,
+      reach,
+      message: `The AI service endpoint is not configured in Settings. ${AI_ENDPOINT_GUIDANCE.unset}`,
+    };
   }
-  let origin: URL;
-  try {
-    origin = new URL(base);
-  } catch {
-    return { ok: false, message: "The configured AI service endpoint is not a valid URL." };
-  }
-  if (origin.protocol !== "http:" && origin.protocol !== "https:") {
-    return { ok: false, message: "The AI service endpoint must be an http(s) URL." };
+  if (reach === "invalid") {
+    return {
+      ok: false,
+      reach,
+      message: "The configured AI service endpoint is not a valid http(s) URL.",
+    };
   }
 
   const serviceKey = process.env["AI_SERVICE_KEY"];
   if (!serviceKey) {
-    return { ok: false, message: "AI_SERVICE_KEY is not set, so the AI service stays closed." };
+    return {
+      ok: false,
+      reach,
+      message: "AI_SERVICE_KEY is not set, so the AI service stays closed.",
+    };
   }
 
   try {
@@ -61,10 +77,17 @@ export async function aiServiceCall(
       }
       // The service key never travels back to the browser, whatever is echoed.
       detail = detail.split(serviceKey).join("[redacted]").slice(0, 400);
-      return { ok: false, message: detail || `AI service returned ${response.status}.` };
+      return { ok: false, reach, message: detail || `AI service returned ${response.status}.` };
     }
     return { ok: true, body: text === "" ? {} : (JSON.parse(text) as unknown) };
   } catch {
-    return { ok: false, message: "The AI service is unreachable." };
+    return {
+      ok: false,
+      reach,
+      message:
+        reach === "local_only"
+          ? AI_ENDPOINT_UNREACHABLE_MESSAGE
+          : "The AI service is unreachable.",
+    };
   }
 }
