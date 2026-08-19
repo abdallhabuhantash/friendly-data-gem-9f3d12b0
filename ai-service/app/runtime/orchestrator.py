@@ -893,6 +893,8 @@ class Orchestrator:
                     payload=self._health_payload(),
                 )
                 last_health = now
+            # A camera that is active must always have a living inference loop.
+            self._ensure_inference_threads()
             if now - last_cameras >= self.settings.camera_heartbeat_seconds:
                 self._camera_heartbeats()
                 last_cameras = now
