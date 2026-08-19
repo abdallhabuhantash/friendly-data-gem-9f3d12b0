@@ -24,8 +24,18 @@ export const Route = createFileRoute("/")({
     ],
   }),
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getSession();
-    throw redirect({ to: data.session ? "/dashboard" : "/login" });
+    // Without public backend config, touching the Supabase client throws and the
+    // router lands on the root error boundary. Send the visitor to /login, which
+    // explains exactly what is missing.
+    if (!hasPublicSupabaseConfig()) throw redirect({ to: "/login" });
+    try {
+      const { data } = await supabase.auth.getSession();
+      throw redirect({ to: data.session ? "/dashboard" : "/login" });
+    } catch (error) {
+      if (error != null && typeof error === "object" && "to" in error) throw error;
+      throw redirect({ to: "/login" });
+    }
   },
   component: () => null,
 });
+
