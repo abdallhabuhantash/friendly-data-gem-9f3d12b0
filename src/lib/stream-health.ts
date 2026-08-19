@@ -26,6 +26,12 @@ export interface CameraStreamHealth {
   inferenceThreadAlive?: boolean;
   /** How long the inference call currently in flight has been running. */
   analysisStageSeconds?: number;
+  /** Captured frames the inference loop has actually taken in. */
+  framesSeen?: number;
+  /** Frames that completed analysis and were published as annotated frames. */
+  framesAnalysed?: number;
+  /** Why the last captured frame was skipped, when one was. */
+  analysisSkipReason?: string | null;
 
 }
 
@@ -64,6 +70,13 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
         typeof entry["analysis_stage_seconds"] === "number"
           ? (entry["analysis_stage_seconds"] as number)
           : 0,
+      framesSeen: typeof entry["frames_seen"] === "number" ? (entry["frames_seen"] as number) : 0,
+      framesAnalysed:
+        typeof entry["frames_analysed"] === "number" ? (entry["frames_analysed"] as number) : 0,
+      analysisSkipReason:
+        typeof entry["analysis_skip_reason"] === "string" && entry["analysis_skip_reason"] !== ""
+          ? (entry["analysis_skip_reason"] as string)
+          : null,
     });
   }
   return result;
@@ -84,6 +97,8 @@ export type StreamState =
   | "analysis_not_running"
   /** One inference call has been in flight far too long to be healthy. */
   | "analysis_slow"
+  /** Frames reach the inference loop but none has ever completed analysis. */
+  | "analysis_no_output"
   /** The configured AI service endpoint cannot be reached from this console. */
   | "service_unreachable";
 
@@ -103,6 +118,7 @@ const LABELS: Record<StreamState, string> = {
   analysis_failed: "AI ANALYSIS FAILING · SEE AI SERVICE LOGS",
   analysis_not_running: "AI ANALYSIS LOOP NOT RUNNING FOR THIS CAMERA",
   analysis_slow: "AI INFERENCE TOO SLOW · FIRST FRAME PENDING",
+  analysis_no_output: "NO ANALYSED FRAMES YET · SEE AI SERVICE LOG FOR SKIP REASON",
   service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
 
@@ -180,6 +196,11 @@ export function streamReadiness(input: {
   // a measured performance failure the operator must be told about.
   if ((entry.analysisStageSeconds ?? 0) >= ANALYSIS_STAGE_STUCK_SECONDS) {
     return readiness("analysis_slow");
+  }
+  // Frames DO reach the loop but not one has ever completed: this is a measured
+  // fact, not a wait, and the local service log names the skip reason.
+  if ((entry.framesSeen ?? 0) > 0 && entry.framesAnalysed === 0) {
+    return readiness("analysis_no_output");
   }
   return readiness("stalled");
 
