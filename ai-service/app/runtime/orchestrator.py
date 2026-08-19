@@ -1267,6 +1267,9 @@ class Orchestrator:
                     # frames. Both values are measured, never assumed.
                     "ai_enabled": self._camera_ai_enabled(camera_id),
                     "analysis_error": self._analysis_error.get(camera_id),
+                    **self._camera_analysis_diagnostics(camera_id),
+
+
 
                     "credentials_configured": bool(
                         getattr(worker, "credentials_configured", False)
