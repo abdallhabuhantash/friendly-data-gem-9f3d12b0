@@ -488,11 +488,18 @@ class Orchestrator:
                     return
                 continue
 
+            if not runtime.config.ai_enabled:
+                # Capture (and therefore the truthful heartbeat) keeps running,
+                # but no inference is performed on this camera.
+                self._stop.wait(0.5)
+                continue
+
             cycle_start = time.monotonic()
             frame, sequence = runtime.worker.latest_frame_with_sequence()
             if frame is None:
                 self._stop.wait(0.2)
                 continue
+
 
             try:
                 analysed = self._guarded_process(runtime, frame, sequence)
