@@ -8,6 +8,8 @@
  * closed: the previous image is dropped and no LIVE wording is shown.
  */
 
+import type { AiEndpointReach } from "./ai-endpoint";
+
 /** The only stream facts the browser is ever given. No keys, no URLs, no FPS. */
 export interface CameraStreamHealth {
   id: string;
@@ -17,7 +19,7 @@ export interface CameraStreamHealth {
 
 export type StreamHealthReply =
   | { ok: true; cameras: CameraStreamHealth[] }
-  | { ok: false; message: string };
+  | { ok: false; message: string; reach?: AiEndpointReach };
 
 /**
  * Extracts the minimum safe per-camera stream facts from the authenticated
