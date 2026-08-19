@@ -281,6 +281,15 @@ function MonitoringPage() {
               </Button>
             </div>
           </div>
+          {streamHealth.data && streamHealth.data.ok === false && (
+            <div className="border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] leading-relaxed text-warning">
+              <span className="font-mono uppercase tracking-[0.1em]">AI service output: </span>
+              {streamHealth.data.message}{" "}
+              <Link to="/settings" className="underline">
+                Open Settings
+              </Link>
+            </div>
+          )}
           {!selected ? (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 border border-border bg-surface/40 text-center">
               <p className="font-mono text-[11px] uppercase text-muted-foreground">
