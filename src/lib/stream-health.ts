@@ -22,6 +22,10 @@ export interface CameraStreamHealth {
   analysisEnabled?: boolean;
   /** Failure class of the last analysis attempt, when one failed. */
   analysisError?: string | null;
+  /** The camera's inference loop is actually running. Absent = not reported. */
+  inferenceThreadAlive?: boolean;
+  /** How long the inference call currently in flight has been running. */
+  analysisStageSeconds?: number;
 
 }
 
@@ -53,6 +57,13 @@ export function minimalCameraStreamHealth(body: unknown): CameraStreamHealth[] {
       analysisEnabled: entry["ai_enabled"] !== false,
       analysisError:
         typeof analysisError === "string" && analysisError !== "" ? analysisError : null,
+      // Only an explicit `false` accuses the loop of not running; an older
+      // service that omits the field is left unjudged.
+      inferenceThreadAlive: entry["inference_thread_alive"] !== false,
+      analysisStageSeconds:
+        typeof entry["analysis_stage_seconds"] === "number"
+          ? (entry["analysis_stage_seconds"] as number)
+          : 0,
     });
   }
   return result;
@@ -69,6 +80,10 @@ export type StreamState =
   | "analysis_disabled"
   /** Analysis is failing on the AI service, so no annotated frames exist. */
   | "analysis_failed"
+  /** The camera's inference loop is not running on the AI service. */
+  | "analysis_not_running"
+  /** One inference call has been in flight far too long to be healthy. */
+  | "analysis_slow"
   /** The configured AI service endpoint cannot be reached from this console. */
   | "service_unreachable";
 
@@ -86,6 +101,8 @@ const LABELS: Record<StreamState, string> = {
   awaiting_service: "AWAITING AI SERVICE",
   analysis_disabled: "AI ANALYSIS DISABLED FOR THIS CAMERA",
   analysis_failed: "AI ANALYSIS FAILING · SEE AI SERVICE LOGS",
+  analysis_not_running: "AI ANALYSIS LOOP NOT RUNNING FOR THIS CAMERA",
+  analysis_slow: "AI INFERENCE TOO SLOW · FIRST FRAME PENDING",
   service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
 
@@ -107,6 +124,9 @@ const readiness = (state: StreamState): StreamReadiness => ({
  * permanently hung `/status` request can never preserve LIVE indefinitely.
  */
 export const STREAM_HEALTH_MAX_AGE_MS = 5_000;
+
+/** A single in-flight inference call older than this is reported as too slow. */
+export const ANALYSIS_STAGE_STUCK_SECONDS = 15;
 
 /**
  * The single readiness decision shared by the viewport, the HUD and every wall
@@ -155,6 +175,12 @@ export function streamReadiness(input: {
   // measured reason instead of the generic "awaiting live frames".
   if (entry.analysisEnabled === false) return readiness("analysis_disabled");
   if (entry.analysisError) return readiness("analysis_failed");
+  if (entry.inferenceThreadAlive === false) return readiness("analysis_not_running");
+  // A single inference call still running after this long is not a wait, it is
+  // a measured performance failure the operator must be told about.
+  if ((entry.analysisStageSeconds ?? 0) >= ANALYSIS_STAGE_STUCK_SECONDS) {
+    return readiness("analysis_slow");
+  }
   return readiness("stalled");
 
 }

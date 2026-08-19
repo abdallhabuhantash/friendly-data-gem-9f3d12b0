@@ -217,6 +217,19 @@ class Orchestrator:
         # currently publishing no annotated frames. Never invented, never
         # optimistic: set from an actual failure, cleared by an actual success.
         self._analysis_error: dict[str, str] = {}
+        # Measured progress of the inference loop of ONE camera. These are the
+        # facts that distinguish "loop never ran", "every frame was skipped" and
+        # "one inference call is still in flight" from each other. All are
+        # counted from real events; none is ever estimated.
+        self._frames_seen: dict[str, int] = {}
+        self._frames_analysed: dict[str, int] = {}
+        self._last_analysis_at: dict[str, float] = {}
+        self._skip_reason: dict[str, str] = {}
+        # Monotonic timestamp of the analysis call currently in flight, if any.
+        self._analysis_started_at: dict[str, float] = {}
+        self._stall_logged_at: dict[str, float] = {}
+
+
 
         self._frame_gate = FrameGate()
         # Explicit Start/End versus automatic reconciliation: the lock serialises
@@ -445,6 +458,17 @@ class Orchestrator:
         self.stream_hub.drop(camera_id)
         self._inference_fps.pop(camera_id, None)
         self._analysis_error.pop(camera_id, None)
+        for counters in (
+            self._frames_seen,
+            self._frames_analysed,
+            self._last_analysis_at,
+            self._skip_reason,
+            self._analysis_started_at,
+            self._stall_logged_at,
+        ):
+            counters.pop(camera_id, None)
+
+
 
         self._processed_frames.pop(camera_id, None)
         self._fps_window.pop(camera_id, None)
@@ -510,9 +534,12 @@ class Orchestrator:
             cycle_start = time.monotonic()
             frame, sequence = runtime.worker.latest_frame_with_sequence()
             if frame is None:
+                self._skip_reason[camera_id] = "no_captured_frame"
+                self._maybe_log_stall(camera_id, runtime.config.name)
                 self._stop.wait(0.2)
                 continue
 
+            self._frames_seen[camera_id] = self._frames_seen.get(camera_id, 0) + 1
 
             try:
                 analysed = self._guarded_process(runtime, frame, sequence)
@@ -521,16 +548,22 @@ class Orchestrator:
                 # kept so the console can tell the operator WHY frames stopped
                 # instead of showing an endless "awaiting live frames".
                 self._analysis_error[camera_id] = type(exc).__name__
+                self._analysis_started_at.pop(camera_id, None)
                 logger.exception("Inference failed for camera %s: %s", runtime.config.name, exc)
                 self._stop.wait(0.5)
                 continue
 
             if analysed:
                 self._analysis_error.pop(camera_id, None)
+                self._skip_reason.pop(camera_id, None)
+                self._frames_analysed[camera_id] = self._frames_analysed.get(camera_id, 0) + 1
+                self._last_analysis_at[camera_id] = time.monotonic()
 
             if not analysed:
+                self._maybe_log_stall(camera_id, runtime.config.name)
                 self._stop.wait(0.005)
                 continue
+
 
 
             remaining = min_interval - (time.monotonic() - cycle_start)
@@ -550,23 +583,33 @@ class Orchestrator:
         camera_id = runtime.camera_id
         with self.cameras.lock(camera_id):
             if self.cameras.generation(camera_id) != runtime.generation:
+                self._skip_reason[camera_id] = "stream_incarnation_changed"
                 return False
             if self._seen_generation.get(camera_id) != runtime.generation:
+                self._skip_reason[camera_id] = "stream_incarnation_changed"
                 return False
             if not self._frame_gate.accept(camera_id, sequence):
                 # The same captured frame must never be analysed twice: a frozen
                 # stream would otherwise fake multiple matching frames.
+                self._skip_reason[camera_id] = "duplicate_captured_frame"
                 return False
 
             count = self._processed_frames.get(camera_id, 0) + 1
             self._processed_frames[camera_id] = count
             every = int(self.settings.process_every_n_frames)
             if every > 1 and count % every:
+                self._skip_reason[camera_id] = "frame_cadence_skip"
                 return False
 
-            observations = self._process_frame(
-                runtime.config, frame, frame_sequence=sequence
-            )
+            # An inference call that never returns is the one stall the console
+            # could not previously see, so the in-flight start time is published.
+            self._analysis_started_at[camera_id] = time.monotonic()
+            try:
+                observations = self._process_frame(
+                    runtime.config, frame, frame_sequence=sequence
+                )
+            finally:
+                self._analysis_started_at.pop(camera_id, None)
             self._record_inference_fps(camera_id)
 
         # Pose submission happens AFTER the camera lifecycle lock is released and
@@ -575,6 +618,31 @@ class Orchestrator:
         if getattr(self, "pose", None) is not None:
             self._submit_pose(runtime, frame, sequence, observations)
         return True
+
+    def _maybe_log_stall(self, camera_id: str, camera_name: str) -> None:
+        """Logs, at most every 10s, why a connected camera analyses no frames.
+
+        Only measured counters are logged: no frame contents, no URLs and no
+        credentials. Silence was the actual defect here — a camera could capture
+        for minutes while the console had nothing but "awaiting live frames".
+        """
+        if self._frames_analysed.get(camera_id):
+            return
+        now = time.monotonic()
+        last = self._stall_logged_at.get(camera_id)
+        if last is not None and (now - last) < 10.0:
+            return
+        self._stall_logged_at[camera_id] = now
+        started = self._analysis_started_at.get(camera_id)
+        logger.warning(
+            "Camera %s captured %d frame(s) but analysed none yet "
+            "(last skip reason: %s, inference in flight: %s)",
+            camera_name,
+            self._frames_seen.get(camera_id, 0),
+            self._skip_reason.get(camera_id, "none"),
+            f"{now - started:.1f}s" if started is not None else "no",
+        )
+
 
     def _submit_pose(self, runtime, frame, sequence, observations) -> None:  # noqa: ANN001
         """Cheap, non-blocking hand-off of one frame to the pose worker.
@@ -1156,6 +1224,29 @@ class Orchestrator:
             return False
         return bool(runtime.config.ai_enabled)
 
+    def _camera_analysis_diagnostics(self, camera_id: str) -> dict:
+        """Measured progress of ONE camera's inference loop.
+
+        Distinguishes the three causes that previously looked identical from the
+        console: the loop is not running, every frame was skipped (and why), or
+        one inference call is still in flight. Contains no image data, no URL and
+        no credential.
+        """
+        thread = self._threads.get(camera_id)
+        started = self._analysis_started_at.get(camera_id)
+        last = self._last_analysis_at.get(camera_id)
+        now = time.monotonic()
+        return {
+            "inference_thread_alive": bool(thread is not None and thread.is_alive()),
+            "frames_seen": int(self._frames_seen.get(camera_id, 0)),
+            "frames_analysed": int(self._frames_analysed.get(camera_id, 0)),
+            "analysis_skip_reason": self._skip_reason.get(camera_id),
+            "analysis_stage": "detecting" if started is not None else "idle",
+            "analysis_stage_seconds": round(now - started, 2) if started is not None else 0.0,
+            "last_analysis_age_seconds": round(now - last, 2) if last is not None else None,
+        }
+
+
     def status(self) -> dict:
 
         return {
@@ -1176,6 +1267,9 @@ class Orchestrator:
                     # frames. Both values are measured, never assumed.
                     "ai_enabled": self._camera_ai_enabled(camera_id),
                     "analysis_error": self._analysis_error.get(camera_id),
+                    **self._camera_analysis_diagnostics(camera_id),
+
+
 
                     "credentials_configured": bool(
                         getattr(worker, "credentials_configured", False)

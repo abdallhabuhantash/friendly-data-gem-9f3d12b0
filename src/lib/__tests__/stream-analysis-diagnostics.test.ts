@@ -63,3 +63,47 @@ describe("analysis diagnostics from the AI service /status document", () => {
     expect(result.displayable).toBe(true);
   });
 });
+
+describe("inference-loop progress diagnostics", () => {
+  it("names a camera whose inference loop is not running", () => {
+    const result = readinessFor({
+      id: CAMERA,
+      connected: true,
+      streaming: false,
+      inference_thread_alive: false,
+    });
+    expect(result.state).toBe("analysis_not_running");
+    expect(result.displayable).toBe(false);
+  });
+
+  it("names a single inference call that has been in flight far too long", () => {
+    const result = readinessFor({
+      id: CAMERA,
+      connected: true,
+      streaming: false,
+      analysis_stage_seconds: 42,
+    });
+    expect(result.state).toBe("analysis_slow");
+  });
+
+  it("keeps a short in-flight inference as an ordinary stall", () => {
+    const result = readinessFor({
+      id: CAMERA,
+      connected: true,
+      streaming: false,
+      analysis_stage_seconds: 1.2,
+    });
+    expect(result.state).toBe("stalled");
+  });
+
+  it("never overrides a genuinely streaming camera", () => {
+    const result = readinessFor({
+      id: CAMERA,
+      connected: true,
+      streaming: true,
+      analysis_stage_seconds: 99,
+      inference_thread_alive: false,
+    });
+    expect(result.state).toBe("live");
+  });
+});
