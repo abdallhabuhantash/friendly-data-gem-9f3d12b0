@@ -21,31 +21,73 @@ class CredentialSource(Protocol):
     def get(self, camera_id: str, host: Optional[str] = None) -> Credentials: ...
 
 
+def _normalise_key(key: str) -> str:
+    """Normalises a credential key so operator formatting cannot break lookup.
+
+    Accepts `192.168.1.64`, ` 192.168.1.64 `, `192.168.1.64:554`,
+    `rtsp://192.168.1.64:554/Streaming/Channels/101` and UUIDs in any case.
+    """
+    value = (key or "").strip().lower()
+    if "://" in value:
+        value = value.split("://", 1)[1]
+    if "@" in value:
+        value = value.rsplit("@", 1)[1]
+    value = value.split("/", 1)[0]
+    if value.count(":") == 1:
+        value = value.split(":", 1)[0]
+    return value
+
+
 class FileCredentialProvider:
     """Reads `secrets/cameras.json` and caches it until the file changes.
 
     Entries may be keyed by the camera's UUID (preferred, unambiguous) or by
     its host/IP, so a local operator can configure a camera before looking up
-    its record id. The UUID key always wins when both are present.
+    its record id. The UUID key always wins when both are present. Keys are
+    normalised (whitespace, case, optional port, optional rtsp:// prefix), so a
+    slightly differently formatted key still authenticates the camera instead
+    of silently producing an anonymous RTSP URL (a 401 from the camera).
     """
 
     def __init__(self, path: Path) -> None:
         self._path = path
         self._mtime: float | None = None
         self._data: dict[str, dict[str, str]] = {}
+        self._missing_logged = False
 
     def _load(self) -> None:
         if not self._path.exists():
+            if not self._missing_logged:
+                logger.warning(
+                    "Camera credentials file not found at %s; RTSP cameras that "
+                    "require a username/password will fail with 401 Unauthorized",
+                    self._path,
+                )
+                self._missing_logged = True
             self._data = {}
+            self._mtime = None
             return
         mtime = self._path.stat().st_mtime
         if mtime == self._mtime:
             return
         try:
             parsed = json.loads(self._path.read_text(encoding="utf-8"))
-            self._data = parsed if isinstance(parsed, dict) else {}
+            raw = parsed if isinstance(parsed, dict) else {}
+            data: dict[str, dict[str, str]] = {}
+            for key, value in raw.items():
+                if not isinstance(value, dict) or str(key).startswith("_"):
+                    continue
+                normalised = _normalise_key(str(key))
+                if normalised:
+                    data[normalised] = value
+            self._data = data
             self._mtime = mtime
-            logger.info("Loaded camera credentials for %d camera(s)", len(self._data))
+            self._missing_logged = False
+            logger.info(
+                "Loaded camera credentials for %d camera(s) from %s",
+                len(self._data),
+                self._path,
+            )
         except (OSError, json.JSONDecodeError) as exc:
             # Log the failure kind only, never the file content.
             logger.error("Unable to read camera credentials file: %s", type(exc).__name__)
@@ -53,13 +95,20 @@ class FileCredentialProvider:
 
     def get(self, camera_id: str, host: Optional[str] = None) -> Credentials:
         self._load()
-        entry = self._data.get(camera_id)
-        if not isinstance(entry, dict) and host:
-            candidate = self._data.get(host)
-            entry = candidate if isinstance(candidate, dict) else None
-        if not isinstance(entry, dict):
-            entry = {}
-        return entry.get("username"), entry.get("password")
+        for candidate in (camera_id, host):
+            if not candidate:
+                continue
+            entry = self._data.get(_normalise_key(str(candidate)))
+            if isinstance(entry, dict) and (entry.get("username") or entry.get("password")):
+                username = entry.get("username")
+                password = entry.get("password")
+                return (
+                    username.strip() if isinstance(username, str) else username,
+                    password if isinstance(password, str) else password,
+                )
+        return (None, None)
+
+
 
 
 class SupabaseCredentialProvider:
