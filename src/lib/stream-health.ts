@@ -65,6 +65,10 @@ export type StreamState =
   | "stalled"
   | "camera_offline"
   | "awaiting_service"
+  /** Camera is connected but analysis is switched off for it. */
+  | "analysis_disabled"
+  /** Analysis is failing on the AI service, so no annotated frames exist. */
+  | "analysis_failed"
   /** The configured AI service endpoint cannot be reached from this console. */
   | "service_unreachable";
 
@@ -80,8 +84,11 @@ const LABELS: Record<StreamState, string> = {
   stalled: "STREAM STALLED · AWAITING LIVE FRAMES",
   camera_offline: "NO SIGNAL · CAMERA OFFLINE",
   awaiting_service: "AWAITING AI SERVICE",
+  analysis_disabled: "AI ANALYSIS DISABLED FOR THIS CAMERA",
+  analysis_failed: "AI ANALYSIS FAILING · SEE AI SERVICE LOGS",
   service_unreachable: "AI SERVICE ENDPOINT NOT REACHABLE · SEE SETTINGS",
 };
+
 
 const readiness = (state: StreamState): StreamReadiness => ({
   state,
