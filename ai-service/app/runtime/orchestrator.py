@@ -534,9 +534,12 @@ class Orchestrator:
             cycle_start = time.monotonic()
             frame, sequence = runtime.worker.latest_frame_with_sequence()
             if frame is None:
+                self._skip_reason[camera_id] = "no_captured_frame"
+                self._maybe_log_stall(camera_id, runtime.config.name)
                 self._stop.wait(0.2)
                 continue
 
+            self._frames_seen[camera_id] = self._frames_seen.get(camera_id, 0) + 1
 
             try:
                 analysed = self._guarded_process(runtime, frame, sequence)
@@ -545,16 +548,22 @@ class Orchestrator:
                 # kept so the console can tell the operator WHY frames stopped
                 # instead of showing an endless "awaiting live frames".
                 self._analysis_error[camera_id] = type(exc).__name__
+                self._analysis_started_at.pop(camera_id, None)
                 logger.exception("Inference failed for camera %s: %s", runtime.config.name, exc)
                 self._stop.wait(0.5)
                 continue
 
             if analysed:
                 self._analysis_error.pop(camera_id, None)
+                self._skip_reason.pop(camera_id, None)
+                self._frames_analysed[camera_id] = self._frames_analysed.get(camera_id, 0) + 1
+                self._last_analysis_at[camera_id] = time.monotonic()
 
             if not analysed:
+                self._maybe_log_stall(camera_id, runtime.config.name)
                 self._stop.wait(0.005)
                 continue
+
 
 
             remaining = min_interval - (time.monotonic() - cycle_start)
