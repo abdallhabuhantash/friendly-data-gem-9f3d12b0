@@ -363,6 +363,12 @@ class Orchestrator:
 
         reconfigured = self.cameras.sync(cameras) or set()
         active = set(self.cameras.active)
+        logger.info(
+            "Camera configuration refresh: discovered=%d capture_workers=%d mode=%s",
+            len(cameras),
+            len(active),
+            self.system.operation_mode,
+        )
 
         # A same-id source replacement must not inherit runtime state from the
         # previous stream incarnation, so it uses exactly the removal cleanup.
@@ -1138,6 +1144,15 @@ class Orchestrator:
                     "capture_fps": round(worker.stats.fps, 2),
                     "inference_fps": round(self._inference_fps.get(camera_id, 0.0), 2),
                     "streaming": self.stream_hub.has(camera_id),
+                    "credentials_configured": bool(
+                        getattr(worker, "credentials_configured", False)
+                    ),
+                    "capture_error": worker.stats.last_error,
+                    "last_frame_at": (
+                        worker.stats.last_frame_at.isoformat()
+                        if worker.stats.last_frame_at is not None
+                        else None
+                    ),
                 }
                 for camera_id, worker in self.cameras.active.items()
             ],

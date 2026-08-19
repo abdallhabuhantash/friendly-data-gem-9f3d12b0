@@ -127,6 +127,14 @@ class CameraManager:
             if already_running:
                 continue
             username, password = self._credentials.get(camera_id, camera.host)
+            credentials_configured = bool(username or password)
+            logger.info(
+                "Starting camera %s (%s): source=%s credentials=%s",
+                camera.name,
+                camera_id,
+                camera.source_type.value,
+                "configured" if credentials_configured else "not configured",
+            )
             source = build_source(
                 camera,
                 username=username,
@@ -139,7 +147,12 @@ class CameraManager:
                     "Camera %s (%s) has no usable source; skipping", camera.name, camera_id
                 )
                 continue
-            worker = CaptureWorker(camera_id, camera.name, source)
+            worker = CaptureWorker(
+                camera_id,
+                camera.name,
+                source,
+                credentials_configured=credentials_configured,
+            )
             worker.start()
             with self._state_lock:
                 # A new worker is always a NEW stream incarnation.

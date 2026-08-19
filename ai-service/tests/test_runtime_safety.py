@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+from app.camera import capture_worker as capture_worker_module
+from app.camera.capture_worker import CaptureWorker
 from app.camera.source_builder import build_rtsp_url, build_source, redact
 from app.domain.models import CameraConfig, SourceType
 from app.infrastructure.offline_queue import OfflineQueue
@@ -23,6 +27,40 @@ def test_rtsp_url_is_redacted_before_logging():
 def test_demo_camera_without_video_has_no_source():
     camera = CameraConfig(id="c2", name="Demo", source_type=SourceType.DEMO)
     assert build_source(camera) is None
+
+
+def test_rtsp_capture_defaults_to_tcp_without_overriding_operator_choice(monkeypatch):
+    opened: list[tuple[str, object]] = []
+
+    class FakeCapture:
+        def set(self, *_args):
+            return True
+
+    monkeypatch.delenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", raising=False)
+    monkeypatch.setattr(
+        capture_worker_module.cv2,
+        "VideoCapture",
+        lambda url, backend: opened.append((url, backend)) or FakeCapture(),
+    )
+    source = build_source(
+        CameraConfig(
+            id="camera-1",
+            name="Camera",
+            source_type=SourceType.DIRECT_CAMERA,
+            host="192.168.1.64",
+            stream_path="/Streaming/Channels/101",
+        ),
+        username="operator",
+        password="not-a-real-secret",
+    )
+    assert source is not None
+    CaptureWorker("camera-1", "Camera", source, credentials_configured=True)._open()
+    assert os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "rtsp_transport;tcp"
+    assert opened
+
+    monkeypatch.setenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;udp")
+    CaptureWorker("camera-1", "Camera", source)._open()
+    assert os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "rtsp_transport;udp"
 
 
 def test_stream_hub_expires_stale_frames():
