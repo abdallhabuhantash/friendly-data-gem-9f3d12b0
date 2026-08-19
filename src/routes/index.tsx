@@ -1,5 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { hasPublicSupabaseConfig } from "@/lib/supabase-config";
+
 
 export const Route = createFileRoute("/")({
   ssr: false,
