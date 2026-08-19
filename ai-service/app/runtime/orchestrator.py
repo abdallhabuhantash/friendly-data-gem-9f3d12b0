@@ -583,23 +583,33 @@ class Orchestrator:
         camera_id = runtime.camera_id
         with self.cameras.lock(camera_id):
             if self.cameras.generation(camera_id) != runtime.generation:
+                self._skip_reason[camera_id] = "stream_incarnation_changed"
                 return False
             if self._seen_generation.get(camera_id) != runtime.generation:
+                self._skip_reason[camera_id] = "stream_incarnation_changed"
                 return False
             if not self._frame_gate.accept(camera_id, sequence):
                 # The same captured frame must never be analysed twice: a frozen
                 # stream would otherwise fake multiple matching frames.
+                self._skip_reason[camera_id] = "duplicate_captured_frame"
                 return False
 
             count = self._processed_frames.get(camera_id, 0) + 1
             self._processed_frames[camera_id] = count
             every = int(self.settings.process_every_n_frames)
             if every > 1 and count % every:
+                self._skip_reason[camera_id] = "frame_cadence_skip"
                 return False
 
-            observations = self._process_frame(
-                runtime.config, frame, frame_sequence=sequence
-            )
+            # An inference call that never returns is the one stall the console
+            # could not previously see, so the in-flight start time is published.
+            self._analysis_started_at[camera_id] = time.monotonic()
+            try:
+                observations = self._process_frame(
+                    runtime.config, frame, frame_sequence=sequence
+                )
+            finally:
+                self._analysis_started_at.pop(camera_id, None)
             self._record_inference_fps(camera_id)
 
         # Pose submission happens AFTER the camera lifecycle lock is released and
@@ -608,6 +618,31 @@ class Orchestrator:
         if getattr(self, "pose", None) is not None:
             self._submit_pose(runtime, frame, sequence, observations)
         return True
+
+    def _maybe_log_stall(self, camera_id: str, camera_name: str) -> None:
+        """Logs, at most every 10s, why a connected camera analyses no frames.
+
+        Only measured counters are logged: no frame contents, no URLs and no
+        credentials. Silence was the actual defect here — a camera could capture
+        for minutes while the console had nothing but "awaiting live frames".
+        """
+        if self._frames_analysed.get(camera_id):
+            return
+        now = time.monotonic()
+        last = self._stall_logged_at.get(camera_id)
+        if last is not None and (now - last) < 10.0:
+            return
+        self._stall_logged_at[camera_id] = now
+        started = self._analysis_started_at.get(camera_id)
+        logger.warning(
+            "Camera %s captured %d frame(s) but analysed none yet "
+            "(last skip reason: %s, inference in flight: %s)",
+            camera_name,
+            self._frames_seen.get(camera_id, 0),
+            self._skip_reason.get(camera_id, "none"),
+            f"{now - started:.1f}s" if started is not None else "no",
+        )
+
 
     def _submit_pose(self, runtime, frame, sequence, observations) -> None:  # noqa: ANN001
         """Cheap, non-blocking hand-off of one frame to the pose worker.
