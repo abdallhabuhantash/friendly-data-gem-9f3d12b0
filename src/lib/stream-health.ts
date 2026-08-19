@@ -109,7 +109,15 @@ export function streamReadiness(input: {
 }): StreamReadiness {
   if (input.cameraOffline) return readiness("camera_offline");
   if (input.healthFailed || input.healthPending) return readiness("awaiting_service");
-  if (!input.health || !input.health.ok) return readiness("awaiting_service");
+  if (!input.health || !input.health.ok) {
+    // A private/loopback endpoint that cannot answer is a CONFIGURATION fact,
+    // not a transient wait: say so instead of implying the service will appear.
+    const reach = input.health && !input.health.ok ? input.health.reach : undefined;
+    if (reach === "local_only" || reach === "invalid" || reach === "unset") {
+      return readiness("service_unreachable");
+    }
+    return readiness("awaiting_service");
+  }
   const updatedAt = input.healthUpdatedAt;
   if (updatedAt !== undefined) {
     const now = input.now ?? Date.now();
