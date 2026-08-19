@@ -407,10 +407,23 @@ class Orchestrator:
                 if pose:
                     pose.deactivate(camera_id)
 
-        for camera_id in active:
+        self._ensure_inference_threads()
+
+    def _ensure_inference_threads(self) -> None:
+        """Guarantees exactly one LIVING inference thread per active camera.
+
+        Called on every control tick, not only on configuration refresh, so a
+        loop that exited for any reason is restarted within a second instead of
+        leaving a connected camera with no inference at all.
+        """
+        for camera_id in set(self.cameras.active):
             thread = self._threads.get(camera_id)
             if thread and thread.is_alive():
                 continue
+            if thread is not None:
+                logger.warning(
+                    "Inference thread for camera %s was not running; restarting it", camera_id
+                )
             thread = threading.Thread(
                 target=self._inference_loop,
                 args=(camera_id,),
@@ -419,6 +432,7 @@ class Orchestrator:
             )
             self._threads[camera_id] = thread
             thread.start()
+
 
     def _transition_generation(self, camera_id: str) -> Optional[int]:
         """Moves a camera to its current stream incarnation, exactly once.
