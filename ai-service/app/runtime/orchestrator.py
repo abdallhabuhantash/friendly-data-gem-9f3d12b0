@@ -1224,6 +1224,29 @@ class Orchestrator:
             return False
         return bool(runtime.config.ai_enabled)
 
+    def _camera_analysis_diagnostics(self, camera_id: str) -> dict:
+        """Measured progress of ONE camera's inference loop.
+
+        Distinguishes the three causes that previously looked identical from the
+        console: the loop is not running, every frame was skipped (and why), or
+        one inference call is still in flight. Contains no image data, no URL and
+        no credential.
+        """
+        thread = self._threads.get(camera_id)
+        started = self._analysis_started_at.get(camera_id)
+        last = self._last_analysis_at.get(camera_id)
+        now = time.monotonic()
+        return {
+            "inference_thread_alive": bool(thread is not None and thread.is_alive()),
+            "frames_seen": int(self._frames_seen.get(camera_id, 0)),
+            "frames_analysed": int(self._frames_analysed.get(camera_id, 0)),
+            "analysis_skip_reason": self._skip_reason.get(camera_id),
+            "analysis_stage": "detecting" if started is not None else "idle",
+            "analysis_stage_seconds": round(now - started, 2) if started is not None else 0.0,
+            "last_analysis_age_seconds": round(now - last, 2) if last is not None else None,
+        }
+
+
     def status(self) -> dict:
 
         return {
