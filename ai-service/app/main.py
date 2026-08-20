@@ -121,19 +121,29 @@ async def stream(camera_id: str, x_service_key: Optional[str] = Header(default=N
         raise HTTPException(status_code=404, detail="Camera is not being processed")
 
     async def frames():
+        # Low-latency policy: send each annotated frame at most once and always
+        # the NEWEST one. Because the write below applies backpressure, a slow
+        # viewer simply misses intermediate frames instead of building a queue
+        # of stale JPEGs, so displayed latency stays bounded.
         # No placeholder imagery is ever produced: when there is no annotated
         # frame the stream simply stays quiet until inference catches up.
+        last_sequence = 0
         while True:
-            jpeg = orchestrator.stream_hub.latest(camera_id)
-            if jpeg:
+            jpeg, sequence = orchestrator.stream_hub.latest_with_sequence(camera_id)
+            if jpeg and sequence != last_sequence:
+                last_sequence = sequence
                 yield (
                     b"--" + BOUNDARY.encode() + b"\r\n"
                     b"Content-Type: image/jpeg\r\n"
                     b"Content-Length: " + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n"
                 )
-            await asyncio.sleep(0.1)
+                # Yield control without adding latency: check again immediately.
+                await asyncio.sleep(0)
+            else:
+                await asyncio.sleep(0.02)
             if orchestrator.cameras.worker(camera_id) is None:
                 return
+
 
     return StreamingResponse(
         frames(),
