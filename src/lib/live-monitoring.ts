@@ -144,6 +144,7 @@ const BADGES: Record<StreamState, { text: string; tone: ViewportTone }> = {
   analysis_failed: { text: "AI ANALYSIS FAILING", tone: "error" },
   analysis_not_running: { text: "ANALYSIS NOT RUNNING", tone: "error" },
   analysis_slow: { text: "INFERENCE TOO SLOW", tone: "warning" },
+  analysis_no_output: { text: "NO ANALYSED FRAMES", tone: "error" },
 
   service_unreachable: { text: "AI SERVICE NOT REACHABLE", tone: "warning" },
 

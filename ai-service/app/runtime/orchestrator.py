@@ -407,10 +407,25 @@ class Orchestrator:
                 if pose:
                     pose.deactivate(camera_id)
 
-        for camera_id in active:
+        # Called unbound so a lightweight test host does not need to re-declare
+        # supervision to exercise configuration refresh.
+        Orchestrator._ensure_inference_threads(self)
+
+    def _ensure_inference_threads(self) -> None:
+        """Guarantees exactly one LIVING inference thread per active camera.
+
+        Called on every control tick, not only on configuration refresh, so a
+        loop that exited for any reason is restarted within a second instead of
+        leaving a connected camera with no inference at all.
+        """
+        for camera_id in set(self.cameras.active):
             thread = self._threads.get(camera_id)
             if thread and thread.is_alive():
                 continue
+            if thread is not None:
+                logger.warning(
+                    "Inference thread for camera %s was not running; restarting it", camera_id
+                )
             thread = threading.Thread(
                 target=self._inference_loop,
                 args=(camera_id,),
@@ -419,6 +434,7 @@ class Orchestrator:
             )
             self._threads[camera_id] = thread
             thread.start()
+
 
     def _transition_generation(self, camera_id: str) -> Optional[int]:
         """Moves a camera to its current stream incarnation, exactly once.
@@ -511,25 +527,52 @@ class Orchestrator:
         # an artificial ceiling. No frame queue exists either way.
         max_fps = float(self.settings.inference_max_fps)
         min_interval = (1.0 / max_fps) if max_fps > 0 else 0.0
+        logger.info("Inference loop started for camera %s", camera_id)
 
         while not self._stop.is_set():
             runtime = self.cameras.snapshot(camera_id)
             if runtime is None:
-                return
+                # A missing snapshot is only fatal when the camera really is no
+                # longer active. While it IS active this is a startup/replacement
+                # race: exiting here used to kill the only inference thread of a
+                # running camera until the next configuration refresh, which is
+                # exactly the "connected but 0.0 FPS forever" failure.
+                if camera_id not in set(self.cameras.active):
+                    logger.info(
+                        "Inference loop for camera %s exiting: camera no longer active",
+                        camera_id,
+                    )
+                    return
+                self._skip_reason[camera_id] = "awaiting_camera_runtime"
+                self._maybe_log_stall(camera_id, camera_id)
+                self._stop.wait(0.2)
+                continue
 
             if self._seen_generation.get(camera_id) != runtime.generation:
                 # The replacement worker may become visible before the control
                 # thread reaches its cleanup: whoever arrives first performs the
                 # transition, under this camera's lifecycle lock.
                 if self._transition_generation(camera_id) is None:
-                    return
+                    # Same reasoning as above: only a camera that is genuinely
+                    # gone ends this loop.
+                    if camera_id not in set(self.cameras.active):
+                        logger.info(
+                            "Inference loop for camera %s exiting: no running incarnation",
+                            camera_id,
+                        )
+                        return
+                    self._skip_reason[camera_id] = "awaiting_camera_runtime"
+                    self._stop.wait(0.2)
+                    continue
                 continue
 
             if not runtime.config.ai_enabled:
                 # Capture (and therefore the truthful heartbeat) keeps running,
                 # but no inference is performed on this camera.
+                self._skip_reason[camera_id] = "ai_disabled_for_camera"
                 self._stop.wait(0.5)
                 continue
+
 
             cycle_start = time.monotonic()
             frame, sequence = runtime.worker.latest_frame_with_sequence()
@@ -852,6 +895,8 @@ class Orchestrator:
                     payload=self._health_payload(),
                 )
                 last_health = now
+            # A camera that is active must always have a living inference loop.
+            Orchestrator._ensure_inference_threads(self)
             if now - last_cameras >= self.settings.camera_heartbeat_seconds:
                 self._camera_heartbeats()
                 last_cameras = now

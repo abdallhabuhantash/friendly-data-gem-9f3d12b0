@@ -152,6 +152,10 @@ describe("measured stream health", () => {
         analysisError: null,
         inferenceThreadAlive: true,
         analysisStageSeconds: 0,
+        framesSeen: 0,
+        framesAnalysed: 0,
+        analysisSkipReason: null,
+
       },
     ]);
 
