@@ -64,10 +64,18 @@ export const Route = createFileRoute("/api/stream/$cameraId")({
             return new Response("Stream cancelled", { status: 499 });
           }
           // Progressive streaming only: the MJPEG body is never buffered.
+          // `x-accel-buffering: no` stops intermediate proxies (and the tunnel)
+          // from accumulating a multi-second backlog of annotated frames.
           return new Response(upstream.body, {
             status: 200,
-            headers: { "content-type": decision.contentType, "cache-control": "no-store" },
+            headers: {
+              "content-type": decision.contentType,
+              "cache-control": "no-store",
+              "x-accel-buffering": "no",
+              "content-encoding": "identity",
+            },
           });
+
         } catch {
           return new Response("Stream unreachable", { status: 404 });
         }
