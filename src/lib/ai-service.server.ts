@@ -57,7 +57,10 @@ export async function aiServiceCall(
     return {
       ok: false,
       reach,
-      message: "AI_SERVICE_KEY is not set, so the AI service stays closed.",
+      message:
+        "AI_SERVICE_KEY is not available to this app, so the AI service stays closed. " +
+        "When running the console locally, add AI_SERVICE_KEY to the web app's .env " +
+        "(the same value as the Python service's AI_SERVICE_KEY) and restart the dev server.",
     };
   }
 
