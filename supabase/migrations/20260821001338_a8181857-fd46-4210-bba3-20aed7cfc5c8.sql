@@ -1,0 +1,1 @@
+UPDATE public.system_settings SET ai_service_url = 'http://127.0.0.1:8000', updated_at = now();
