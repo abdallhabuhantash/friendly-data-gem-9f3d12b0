@@ -35,9 +35,13 @@ export const Route = createFileRoute("/api/stream/$cameraId")({
           return new Response("AI service endpoint is invalid", { status: 404 });
         }
 
-        const headers: Record<string, string> = {};
+        // The AI service always requires the shared key, so a missing key is a
+        // configuration fault — reported as such instead of a blind 401 upstream.
         const serviceKey = process.env["AI_SERVICE_KEY"];
-        if (serviceKey) headers["X-Service-Key"] = serviceKey;
+        if (!serviceKey) {
+          return new Response("AI_SERVICE_KEY is not configured for this app", { status: 404 });
+        }
+        const headers: Record<string, string> = { "X-Service-Key": serviceKey };
 
         try {
           const { bindUpstreamToDownstream } = await import("@/lib/stream-proxy");
